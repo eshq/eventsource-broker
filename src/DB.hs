@@ -32,7 +32,7 @@ import           Data.UString (UString, u)
 import           Data.Maybe (fromJust)
 
 import          Database.MongoDB (
-                    Action, Pipe, Database, Document, Failure, runIOE, connect, auth, access, master,
+                    Action, Pipe, Database, Document, Failure, AccessMode(..), runIOE, connect, auth, access,
                     readHostPort, close, repsert, modify, delete, (=:), select,
                     findOne, count, lookup, at
                  )
@@ -103,7 +103,7 @@ authenticate db (Credentials user pass) = run db (auth user pass)
 
 run :: DB -> Action IO a -> IO (Either Failure a)
 run (DB pipe db) action = 
-    access pipe master db action
+    access pipe UnconfirmedWrites db action
 
 
 closeConn :: DB -> IO ()
