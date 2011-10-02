@@ -2,6 +2,7 @@
 module Main where
 
 import           Control.Applicative ((<|>))
+import           Control.Monad (forever)
 import           Control.Monad.Trans (liftIO)
 import           Control.Concurrent (forkIO, threadDelay)
 import           Control.Concurrent.Chan (Chan, readChan, dupChan)
@@ -15,7 +16,6 @@ import           Data.ByteString(ByteString)
 import qualified Data.ByteString.Char8 as BS
 import           Data.UString (UString, u)
 import qualified Data.UString as US
-import           Data.Digest.Pure.SHA (sha1, bytestringDigest)
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Blaze.ByteString.Builder(fromByteString)
 
@@ -24,7 +24,7 @@ import qualified System.UUID.V4 as UUID
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse)
 
-import           DB
+import           DB (DB, Failure, openDB, closeDB)
 
 import qualified Models.Connection as Conn
 import qualified Models.User as User
@@ -67,10 +67,9 @@ main = do
 
 -- |Clean up disconnected connections for this broker at regular intervals
 connectionSweeper :: DB -> UString -> IO ()
-connectionSweeper db uuid = do
+connectionSweeper db uuid = forever $ do
     threadDelay 15000000
     Conn.sweep db uuid
-    connectionSweeper db uuid
 
 
 brokerInfo :: DB -> UString -> Snap ()
@@ -80,8 +79,9 @@ brokerInfo db uuid = do
         Right count ->
             sendJSON $ BS.pack $ "{\"brokerId\": " ++ (show uuid) ++ ", \"connections\": " ++ (show count) ++ "}"
         Left e -> do
-            modifyResponse $ setResponseCode 500
-            writeBS $ BS.pack $ "Database Connection Problem: " ++ (show e)
+            logError (BS.pack $ show e)
+            showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
+
 
 -- |Create a new socket and return the ID
 createSocket :: DB -> UString -> Snap ()
@@ -115,6 +115,7 @@ postEvent db chan queue =
                   AMQPEvent (utobs channel) (utobs $ User.apiKey user) (utobs dataParam) Nothing Nothing
               writeBS "Ok"
 
+
 -- |Post a new event from a socket.
 postEventFromSocket :: DB -> Channel -> UString -> Snap ()
 postEventFromSocket db chan queue =
@@ -136,6 +137,7 @@ eventSource db uuid chan = do
   where
     before conn = Conn.store db conn { Conn.brokerId = uuid } >> return ()
     after conn = Conn.mark db (conn { Conn.disconnectAt = Just 10 } ) >> return ()
+
 
 serveJS :: ByteString -> Snap ()
 serveJS js = do

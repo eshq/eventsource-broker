@@ -19,6 +19,7 @@ data Connection = Connection
     , disconnectAt :: Maybe Int -- Seconds from current time
     }
 
+
 -- |Store a "connection" to the broker in the database
 -- If the disconnect is set, the connection will be marked for
 -- disconnection during a coming sweep

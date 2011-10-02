@@ -23,6 +23,7 @@ module DB
 import           Prelude hiding (lookup)
 
 import           Control.Exception (bracket)
+import           Control.Monad.Instances
 
 import           System.Posix.Env(getEnvDefault)
 import           Data.String.Utils(split)
@@ -57,8 +58,7 @@ openDB = do
 
 -- |Close the connection to the database
 closeDB :: DB -> IO ()
-closeDB = do
-    closeConn
+closeDB = closeConn
 
 
 -- |Bracket around opening and closing the DB connection
@@ -70,8 +70,7 @@ withDB f = do
 
 
 returnModel :: (Document -> a) -> Either Failure (Maybe Document) -> Either Failure (Maybe a)
-returnModel constructor (Right result) = return (fmap constructor result)
-returnModel _           (Left failure) = Left failure
+returnModel constructor = fmap (fmap constructor)
 
 
 openConn :: String -> IO DB
