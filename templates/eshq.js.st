@@ -38,8 +38,12 @@
 
   window.addEventListener("message", onMessage, false);
 
-  var getSocket = function(channel, url) {
-    post(url, "channel=" + channel, function() {
+  var getSocket = function(channel, options) {
+    var data = "channel=" + channel;
+    if (options.presence_id) {
+      data += "&presence_id=" + options.presence_id;
+    }
+    post(options.url, data, function() {
       if (this.readyState == 4 && this.status == 200) {
         var resp = JSON.parse(this.responseText);
         openChannel(channel, resp.socket);
@@ -58,7 +62,7 @@
   window.eshq = {
     open: function(channel, options) {
       subs[channel] = new Sub(channel, options || {});
-      getSocket(channel, options.auth_url || "/eshq/socket");
+      getSocket(channel, {url: options.auth_url || "/eshq/socket", presence_id: options.presence_id});
     },
     send: function(channel, data) {
       var sub = subs[channel];

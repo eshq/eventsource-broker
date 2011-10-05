@@ -16,6 +16,7 @@ module DB
       findOne,
       count,
       lookup,
+      distinct,
       at,
       (=:)
     ) where
@@ -30,12 +31,15 @@ import           Data.String.Utils(split)
 import           Text.URI(URI(..), parseURI)
 
 import           Data.UString (UString, u)
+import           Data.CompactString (CompactString, Encoding, toByteString)
+import           Data.CompactString.Encodings (UTF8)
 import           Data.Maybe (fromJust)
+import           Data.Aeson
 
 import          Database.MongoDB (
                     Action, Pipe, Database, Document, Failure, AccessMode(..), runIOE, connect, auth, access,
                     readHostPort, close, repsert, modify, delete, (=:), select,
-                    findOne, count, lookup, at
+                    findOne, count, lookup, distinct, at
                  )
 
 -- |A connection to a mongoDB
@@ -47,6 +51,8 @@ data Credentials = NoAuth
                  | Credentials { crUser :: UString, crPass :: UString }
 
 
+instance Encoding a => ToJSON (CompactString a) where
+  toJSON = toJSON . toByteString
 
 -- |Opens a connection to the database speficied in the MONGO_URL
 -- environment variable

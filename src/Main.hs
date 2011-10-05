@@ -18,6 +18,7 @@ import           Data.UString (UString, u)
 import qualified Data.UString as US
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Blaze.ByteString.Builder(fromByteString)
+import           Data.Aeson
 
 import qualified System.UUID.V4 as UUID
 
@@ -27,6 +28,7 @@ import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResp
 import           DB (DB, Failure, openDB, closeDB)
 
 import qualified Models.Connection as Conn
+import qualified Models.Channel as Channel
 import qualified Models.User as User
 
 import           System.Posix.Env(getEnvDefault)
@@ -61,6 +63,7 @@ main = do
             ]) <|>
             method GET (route [
                 ("broker", brokerInfo db uuid),
+                ("channel/:channel/users", channelInfo db),
                 ("eventsource", eventSource db uuid listener) 
             ])
 
@@ -76,11 +79,22 @@ brokerInfo :: DB -> UString -> Snap ()
 brokerInfo db uuid = do
     result <- liftIO $ Conn.count db uuid
     case result of
-        Right count ->
-            sendJSON $ BS.pack $ "{\"brokerId\": " ++ (show uuid) ++ ", \"connections\": " ++ (show count) ++ "}"
+        Right info -> sendJSON info
         Left e -> do
             logError (BS.pack $ show e)
             showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
+
+
+channelInfo :: DB -> Snap ()
+channelInfo db = do
+    withAuth db $ \user -> do
+      withParam "channel" $ \channel -> do
+        result <- liftIO $ Channel.presence db user channel
+        case result of
+            Right presenceIds -> sendJSON presenceIds
+            Left e -> do
+                logError (BS.pack $ show e)
+                showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
 
 
 -- |Create a new socket and return the ID
@@ -90,7 +104,7 @@ createSocket db uuid = do
       withParam "channel" $ \channel -> do
         socketId   <- liftIO $ fmap show UUID.uuid
         presenceId <- getParam "presence_id"
-        result     <- liftIO $ Conn.store db Conn.Connection {
+        let conn = Conn.Connection {
               Conn.socketId     = u socketId
             , Conn.brokerId     = uuid
             , Conn.userId       = User.apiKey user
@@ -98,12 +112,12 @@ createSocket db uuid = do
             , Conn.presenceId   = fmap ufrombs presenceId
             , Conn.disconnectAt = Just 10
         }
+        result <- liftIO $ Conn.store db conn
         case result of
           Left failure -> do
               logError (BS.pack $ show failure)
               showError 500 "Database Connection Error"
-          Right _ ->
-              sendJSON $ BS.pack ("{\"socket\": \"" ++ socketId ++ "\"}")
+          Right _ -> sendJSON conn
 
 
 postEvent :: DB -> Channel -> UString -> Snap ()
@@ -171,6 +185,7 @@ withAuth db handler = do
           if validTime timestamp' currentTime && User.authenticate user token' timestamp'
             then handler user
             else showError 401 "Access Denied"
+    _ -> showError 401 "Access Denied - Missing Credentials"
 
 
 withDBResult :: IO (Either Failure (Maybe a)) -> Snap () -> (a -> Snap ()) -> Snap ()
@@ -199,10 +214,10 @@ showError code msg = do
     finishWith r
 
 
-sendJSON :: ByteString -> Snap ()
-sendJSON json = do
+sendJSON :: ToJSON a => a -> Snap ()
+sendJSON val = do
     modifyResponse $ setContentType "application/json"
-    writeBS json
+    writeLBS . encode . toJSON $ val
 
 
 -- |Returns the transport method to use for this request

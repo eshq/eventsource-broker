@@ -5,7 +5,8 @@ import           Prelude hiding (lookup)
 
 import           Data.Time.Clock (UTCTime, getCurrentTime)
 import           Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime)
-import           Data.UString (UString)
+import           Data.UString (UString, toByteString)
+import           Data.Aeson
 
 import           DB
 
@@ -18,6 +19,16 @@ data Connection = Connection
     , presenceId   :: Maybe UString
     , disconnectAt :: Maybe Int -- Seconds from current time
     }
+
+
+instance ToJSON Connection where
+    toJSON conn = object ["socket" .= socketId conn, "channel" .= channel conn, "presence_id" .= presenceId conn]
+
+
+data BrokerInfo = BrokerInfo UString Int
+
+instance ToJSON BrokerInfo where
+    toJSON (BrokerInfo uuid count) = object ["broker_id" .= uuid, "connections" .= count]
 
 
 -- |Store a "connection" to the broker in the database
@@ -81,9 +92,9 @@ constructor doc = Connection {
                 }
 
 
-count :: DB -> UString -> IO (Either Failure Int)
+count :: DB -> UString -> IO (Either Failure BrokerInfo)
 count db bid =
-    run db $ DB.count (select ["broker" =: bid] "connections")
+    run db $ DB.count (select ["broker" =: bid] "connections") >>= return . BrokerInfo bid
 
 
 disconnectTime :: Maybe Int -> IO (Maybe UTCTime)
