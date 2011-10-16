@@ -31,19 +31,27 @@ setTimeout(function() {
     parent.postMessage('{"eshqEvent":"open", "channel": "' + channel +'"}', "*");
   } else {
     evtSrc.onopen = function(e) {
-      parent.postMessage('{"eshqEvent":"open", "channel": "' + channel +'"}', "*");
+      parent.postMessage(JSON.stringify({
+        eshqEvent:"open",
+        channel: channel,
+        originalEvent: e
+      }), "*");
     };
   }
 
   evtSrc.onerror = function(e) {
-    parent.postMessage('{"eshqEvent":"error", "channel": "' + channel +'"}', "*");
+    parent.postMessage(JSON.stringify({
+      eshqEvent: "error",
+      channel: channel,
+      originalEvent: e
+    }), "*");
   };
 
   evtSrc.onmessage = function(e) {
     parent.postMessage(JSON.stringify({
       eshqEvent: "message",
-      originalEvent: e,
-      channel: channel
+      channel: channel,
+      originalEvent: e
     }), "*");
   };
 }, 0);

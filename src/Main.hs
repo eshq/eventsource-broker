@@ -23,7 +23,7 @@ import           Data.Aeson
 import qualified System.UUID.V4 as UUID
 
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
-import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse)
+import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe)
 
 import           DB (DB, Failure, openDB, closeDB)
 
@@ -64,7 +64,8 @@ main = do
             method GET (route [
                 ("broker", brokerInfo db uuid),
                 ("channel/:channel/users", channelInfo db),
-                ("eventsource", eventSource db uuid listener) 
+                ("eventsource", eventSource db uuid listener),
+                ("eventSource/:transport", eventSource db uuid listener)
             ])
 
 
@@ -222,10 +223,12 @@ sendJSON val = do
 
 -- |Returns the transport method to use for this request
 getTransport :: Snap (IO ServerEvent -> IO () -> Snap ())
-getTransport = withRequest $ \request ->
-    case getHeader "X-Requested-With" request of
-      Just "XMLHttpRequest" -> return eventSourceResponse
-      _                     -> return eventSourceStream
+getTransport = withRequest $ \request -> do
+    iframe <- getParam "transport"
+    case (iframe, getHeader "X-Requested-With" request) of
+      (Just "iframe" , _                    ) -> return eventSourceIframe
+      (_             , Just "XMLHttpRequest") -> return eventSourceResponse
+      (_             , _                    ) -> return eventSourceStream
 
 
 -- |Filter AMQPEvents by channelId

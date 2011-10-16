@@ -42,7 +42,8 @@
 module EventStream (
     ServerEvent(..),
     eventSourceStream,
-    eventSourceResponse
+    eventSourceResponse,
+    eventSourceIframe
     ) where
 
 import Blaze.ByteString.Builder
@@ -126,6 +127,10 @@ eventSourceBuilder (ServerEvent n i d)= Just $ flushAfter $
     evid (Just i) = mappend (field idField   i)
 
 
+scriptTagBuilder :: ServerEvent -> Maybe Builder
+scriptTagBuilder _ = Just $ flushAfter $ fromString "<script>alert(\"event\");</script>"
+
+
 eventSourceEnum source builder timeoutAction finalizer = withInitialPing
   where
     withInitialPing (Continue k) = k (Chunks [pingEvent]) >>== go
@@ -183,3 +188,9 @@ eventSourceResponse source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
     eventResponse source eventSourceBuilder finalizer
+
+
+eventSourceIframe source finalizer = do
+    modifyResponse $ setContentType "text/html"
+                   . setHeader "Cache-Control" "no-cache"
+    eventStream source scriptTagBuilder finalizer

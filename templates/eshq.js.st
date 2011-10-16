@@ -15,12 +15,13 @@
     xhr.send(data);
   };
 
-  var Sub = function(channel, options) {
-    for (var i in options) {
-      this[i] = options[i];
-    };
-    this.channel = channel;
-  }
+  var Sub = function(es) {
+    this.es      = es;
+  };
+
+  Sub.prototype.dispatch = function(data) {
+    this.es._trigger(data.eshqEvent, data.originalEvent);
+  };
 
   var subs = {};
 
@@ -33,10 +34,14 @@
     var sub = subs[data.channel];
     if (!sub) { return; }
 
-    if (sub[data.eshqEvent]) { sub[data.eshqEvent].call(null, data.originalEvent); }
+    sub.dispatch(data);
   };
 
-  window.addEventListener("message", onMessage, false);
+  if (window.postMessage) {
+    window.addEventListener("message", onMessage, false);
+  } else {
+    window._eshqM = onMessage;
+  }
 
   var getSocket = function(channel, options) {
     var data = "channel=" + channel;
@@ -52,23 +57,44 @@
   };
 
   var openChannel = function(channel, socket) {
-      var iframe = document.createElement("iframe");
+      var iframe = document.createElement("iframe"),
+          action = window.postMessage ? "/iframe" : "/eventsource/iframe";
       iframe.setAttribute("style", "display: none;");
-      iframe.setAttribute("src", origin + "/iframe?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
+      iframe.setAttribute("src", origin + action + "?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
       document.body.appendChild(iframe);
       subs[channel].frame = iframe;
   };
 
-  window.eshq = {
-    open: function(channel, options) {
-      subs[channel] = new Sub(channel, options || {});
-      getSocket(channel, {url: options.auth_url || "/eshq/socket", presence_id: options.presence_id});
-    },
-    send: function(channel, data) {
-      var sub = subs[channel];
-      if (!sub) throw "You must open a channel before sending to it";
+  var ESHQ = function(channel, options) {
+    if ( !(this instanceof ESHQ)) return new ESHQ(channel, options);
 
-      sub.frame.contentWindow.postMessage(data, "*");
+    this.sub = subs[channel] = new Sub(this, channel, options || {});
+    getSocket(channel, {url: options.auth_url || "/eshq/socket", presence_id: options.presence_id});
+  };
+
+  ESHQ.prototype = {
+    _listeners: {},
+    _trigger: function(type, event) {
+      var fn = this["on" + type];
+      if (fn) fn.call(null, event);
+      if (type == "message") {
+        var listeners = this._listeners[event.type] || [];
+        for (var i=0; i<listeners.lengt; i++) {
+          listeners[i].call(null, event);
+        }
+      }
+    },
+    onopen: null,
+    onmessage: null,
+    onerror: null,
+    addEventListener: function(type, fn) {
+      this._listeners[type] = this._listeners[type] || [];
+      this._listeners[type].push(fn);
+    },
+    send: function(data) {
+      this.sub.frame.contentWindow.postMessage(data, "*");
     }
   };
+
+  window.ESHQ = ESHQ;
 })();
