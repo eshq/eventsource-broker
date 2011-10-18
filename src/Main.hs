@@ -227,11 +227,8 @@ sendJSON val = do
 getTransport :: Snap (IO ServerEvent -> IO () -> Snap ())
 getTransport = withRequest $ \request -> do
     iframe <- getParam "transport"
-    withRequest $ \req -> liftIO . putStrLn . show $ rqPathInfo req
-    liftIO . putStrLn . show $ iframe
     case (iframe, getHeader "X-Requested-With" request) of
       (Just "iframe" , _                    ) -> do
-          liftIO . putStrLn $ "Using eventSourceIframe"
           return eventSourceIframe
       (_             , Just "XMLHttpRequest") -> return eventSourceResponse
       (_             , _                    ) -> return eventSourceStream
