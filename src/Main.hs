@@ -147,6 +147,7 @@ eventSource :: DB -> UString -> Chan AMQPEvent -> Snap ()
 eventSource db uuid chan = do
     noCompression
     chan'   <- liftIO $ dupChan chan
+    liftIO . putStrLn $ "Doing the eventSource thing"
     withConnection db $ \conn -> do
       liftIO $ before conn
       transport <- getTransport

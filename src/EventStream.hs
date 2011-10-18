@@ -134,7 +134,7 @@ iframeHead = [
     fromString "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">",
     fromString "<script>",
     fromString "window.onError = null;",
-    fromString "document.domain = \"10.0.1.3\";",
+    fromString "document.domain = \"ws.webpop.local\";",
     fromString "</script></head>",
     fromString "<body>",
     fromString "<script>parent.ESHQ({type: \"open\"});</script>",
