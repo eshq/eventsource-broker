@@ -11,6 +11,7 @@ import           Control.Exception (bracket)
 import           Snap.Types
 import           Snap.Util.FileServe (serveFile, serveDirectory)
 import           Snap.Http.Server( quickHttpServe)
+import           Snap.Util.GZip (noCompression)
 
 import           Data.ByteString(ByteString)
 import qualified Data.ByteString.Char8 as BS
@@ -64,8 +65,8 @@ main = do
             method GET (route [
                 ("broker", brokerInfo db uuid),
                 ("channel/:channel/users", channelInfo db),
-                ("eventsource", eventSource db uuid listener),
-                ("eventSource/:transport", eventSource db uuid listener)
+                ("eventsource/:transport", eventSource db uuid listener),
+                ("eventsource", eventSource db uuid listener)
             ])
 
 
@@ -144,6 +145,7 @@ postEventFromSocket db chan queue =
 -- |Stream events from a channel of AMQPEvents to EventSource
 eventSource :: DB -> UString -> Chan AMQPEvent -> Snap ()
 eventSource db uuid chan = do
+    noCompression
     chan'   <- liftIO $ dupChan chan
     withConnection db $ \conn -> do
       liftIO $ before conn
@@ -225,8 +227,12 @@ sendJSON val = do
 getTransport :: Snap (IO ServerEvent -> IO () -> Snap ())
 getTransport = withRequest $ \request -> do
     iframe <- getParam "transport"
+    withRequest $ \req -> liftIO . putStrLn . show $ rqPathInfo req
+    liftIO . putStrLn . show $ iframe
     case (iframe, getHeader "X-Requested-With" request) of
-      (Just "iframe" , _                    ) -> return eventSourceIframe
+      (Just "iframe" , _                    ) -> do
+          liftIO . putStrLn $ "Using eventSourceIframe"
+          return eventSourceIframe
       (_             , Just "XMLHttpRequest") -> return eventSourceResponse
       (_             , _                    ) -> return eventSourceStream
 

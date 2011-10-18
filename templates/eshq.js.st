@@ -57,12 +57,37 @@
   };
 
   var openChannel = function(channel, socket) {
-      var iframe = document.createElement("iframe"),
-          action = window.postMessage ? "/iframe" : "/eventsource/iframe";
-      iframe.setAttribute("style", "display: none;");
-      iframe.setAttribute("src", origin + action + "?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
-      document.body.appendChild(iframe);
-      subs[channel].frame = iframe;
+      if (window.postMessage) {
+        var iframe = document.createElement("iframe");
+        iframe.setAttribute("style", "display: none;");
+        iframe.setAttribute("src", origin + "/iframe?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
+        document.body.appendChild(iframe);
+        subs[channel].frame = iframe;
+        subs[channel].socket = socket;
+      } else {
+        var iframe = new ActiveXObject("htmlfile");
+        iframe.open();
+        iframe.write("<html><script>document.domain='" + (document.domain) + "'</script></html>");
+        iframe.parentWindow.ESHQ = function(e) { 
+          switch(e.type) {
+            case "message":
+              subs[channel].dispatch({eshqEvent: "message", originalEvent: {type: e.name, id: e.id, data: e.data.join("")}}); 
+              break;
+            case "comment":
+            case "retry":
+              break;
+            case "open":
+              subs[channel].dispatch({eshqEvent: "open", originalEvent: {}});
+              break;
+          }
+        };
+        iframe.close();
+        var ifrDiv = iframe.createElement("div");
+        iframe.appendChild(ifrDiv);
+        ifrDiv.innerHTML = "<iframe src='" + origin + "/eventsource/iframe?channel=" + channel + "&socket=" + socket + "'></iframe>";
+        subs[channel].frame = iframe;
+        subs[channel].socket = socket;
+      }
   };
 
   var ESHQ = function(channel, options) {
@@ -91,8 +116,30 @@
       this._listeners[type] = this._listeners[type] || [];
       this._listeners[type].push(fn);
     },
-    send: function(data) {
+    send: window.postMessage ? function(data) {
       this.sub.frame.contentWindow.postMessage(data, "*");
+    } : function(data) {
+      var iframe = document.createElement("iframe");
+      var uniqueString = new Date().getTime();
+      document.body.appendChild(iframe);
+      iframe.style.display = "none";
+      iframe.contentWindow.name = uniqueString;
+
+      // construct a form with hidden inputs, targeting the iframe
+      var form = document.createElement("form");
+      form.target = uniqueString;
+      form.action = origin + "/socket/" + this.sub.socket;
+      form.method = "POST";
+
+      // repeat for each parameter
+      var input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "data";
+      input.value = data;
+      form.appendChild(input);
+
+      document.body.appendChild(form);
+      form.submit();
     }
   };
 

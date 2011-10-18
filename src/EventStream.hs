@@ -52,6 +52,8 @@ import Control.Monad.Trans
 import Control.Concurrent
 import Control.Exception (onException)
 import Data.Monoid
+import Data.Maybe (fromJust)
+import Data.Aeson
 import Data.Enumerator (Step(..), Stream(..), (>>==), returnI)
 -- import Data.Enumerator.List (generateM)
 import Snap.Types
@@ -75,6 +77,24 @@ data ServerEvent
         eventRetry :: Int
         }
     | CloseEvent
+
+
+eventType :: ServerEvent -> String
+eventType (ServerEvent _ _ _) = "message"
+eventType (CommentEvent _)    = "comment"
+eventType (RetryEvent _)      = "retry"
+eventType (CloseEvent)        = "close"
+
+
+instance ToJSON ServerEvent where
+    toJSON e@(ServerEvent n i d) = object ["type" .= eventType e, "name" .= n, "id" .= i, "data" .= d]
+    toJSON e@(CommentEvent d)    = object ["type" .= eventType e, "data" .= d]
+    toJSON e@(RetryEvent i)      = object ["type" .= eventType e, "time" .= i]
+    toJSON e@CloseEvent          = object ["type" .= eventType e]
+
+
+instance ToJSON Builder where
+  toJSON = toJSON . toByteString
 
 
 {-|
@@ -107,7 +127,19 @@ flushAfter b = b `mappend` flush
 {-|
     Send a comment with the string "ping" to the client.
 -}
-pingEvent = flushAfter $ field commentField (fromString "ping")
+pingEvent = CommentEvent (fromString "ping")
+
+
+iframeHead = [
+    fromString "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">",
+    fromString "<script>",
+    fromString "window.onError = null;",
+    fromString "document.domain = \"10.0.1.3\";",
+    fromString "</script></head>",
+    fromString "<body>",
+    fromString "<script>parent.ESHQ({type: \"open\"});</script>",
+    flush
+  ]
 
 
 {-|
@@ -127,21 +159,30 @@ eventSourceBuilder (ServerEvent n i d)= Just $ flushAfter $
     evid (Just i) = mappend (field idField   i)
 
 
+
 scriptTagBuilder :: ServerEvent -> Maybe Builder
-scriptTagBuilder _ = Just $ flushAfter $ fromString "<script>alert(\"event\");</script>"
+scriptTagBuilder CloseEvent = Nothing
+scriptTagBuilder e = Just $ flushAfter $ 
+      fromString "<script>parent.ESHQ(" `mappend` (fromLazyByteString . encode $ e) `mappend` fromString ");</script>" `mappend` nl
 
 
-eventSourceEnum source builder timeoutAction finalizer = withInitialPing
+eventSourceEnum header source builder timeoutAction finalizer = prepend header
   where
-    withInitialPing (Continue k) = k (Chunks [pingEvent]) >>== go
+    withInitialPing (Continue k) = k (Chunks [fromJust . builder $ pingEvent]) >>== go
+    prepend x (Continue k) = do
+      k (Chunks (x ++ [flush])) >>== go
+    prepend [] (Continue k) = go (Continue k)
+    prepend _  step = do
+        liftIO finalizer
+        returnI step
     go (Continue k) = do
       liftIO $ timeoutAction 10
       event <- liftIO $ timeout 9000000 source
       case fmap builder event of
         Just (Just b)  -> k (Chunks [b]) >>== go
         Just Nothing -> k EOF
-        Nothing -> do
-          k (Chunks [pingEvent]) >>== go
+        Nothing ->
+          k (Chunks [fromJust . builder $ pingEvent]) >>== go
     go step = do
       liftIO finalizer
       returnI step
@@ -151,11 +192,11 @@ eventSourceEnum source builder timeoutAction finalizer = withInitialPing
     Send a stream of events to the client. Takes a function to convert an
     event to a builder. If that function returns Nothing the stream is closed.
 -}
-eventStream :: IO ServerEvent -> (ServerEvent -> Maybe Builder) -> IO () -> Snap ()
-eventStream source builder finalizer = do
+eventStream :: [Builder] -> IO ServerEvent -> (ServerEvent -> Maybe Builder) -> IO () -> Snap ()
+eventStream header source builder finalizer = do
     timeoutAction <- getTimeoutAction
     modifyResponse $ setResponseBody $
-        eventSourceEnum source builder timeoutAction finalizer
+        eventSourceEnum header source builder timeoutAction finalizer
 
 
 {-|
@@ -180,7 +221,7 @@ eventResponse source builder finalizer = do
 eventSourceStream source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
-    eventStream source eventSourceBuilder finalizer
+    eventStream [fromJust . eventSourceBuilder $ pingEvent] source eventSourceBuilder finalizer
 
 
 -- |Long polling fallback - sends a single response when an event is pulled
@@ -193,4 +234,4 @@ eventSourceResponse source finalizer = do
 eventSourceIframe source finalizer = do
     modifyResponse $ setContentType "text/html"
                    . setHeader "Cache-Control" "no-cache"
-    eventStream source scriptTagBuilder finalizer
+    eventStream (iframeHead ++ [fromString . take 4000 . repeat $ ' '] ++ [flush]) source scriptTagBuilder finalizer
