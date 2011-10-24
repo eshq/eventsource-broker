@@ -43,7 +43,8 @@ module EventStream (
     ServerEvent(..),
     eventSourceStream,
     eventSourceResponse,
-    eventSourceIframe
+    eventSourceIframe,
+    eventSourceScript
     ) where
 
 import Blaze.ByteString.Builder
@@ -159,11 +160,18 @@ eventSourceBuilder (ServerEvent n i d)= Just $ flushAfter $
     evid (Just i) = mappend (field idField   i)
 
 
+eventToScript :: ServerEvent -> Builder
+eventToScript e = fromString "parent.ESHQ(" `mappend` (fromLazyByteString . encode $ e) `mappend` fromString ");" 
+
+
+scriptBuilder :: ServerEvent -> Maybe Builder
+scriptBuilder e = Just $ flushAfter $ eventToScript e `mappend` nl
+
 
 scriptTagBuilder :: ServerEvent -> Maybe Builder
 scriptTagBuilder CloseEvent = Nothing
 scriptTagBuilder e = Just $ flushAfter $ 
-      fromString "<script>parent.ESHQ(" `mappend` (fromLazyByteString . encode $ e) `mappend` fromString ");</script>" `mappend` nl
+      fromString "<script>" `mappend` eventToScript e `mappend` fromString "</script>" `mappend` nl
 
 
 eventSourceEnum header source builder timeoutAction finalizer = prepend header
@@ -235,3 +243,9 @@ eventSourceIframe source finalizer = do
     modifyResponse $ setContentType "text/html"
                    . setHeader "Cache-Control" "no-cache"
     eventStream (iframeHead ++ [fromString . take 4000 . repeat $ ' '] ++ [flush]) source scriptTagBuilder finalizer
+
+
+eventSourceScript source finalizer = do
+    modifyResponse $ setContentType "text/javascript"
+                   . setHeader "Cache-Control" "no-cache"
+    eventResponse source scriptBuilder finalizer

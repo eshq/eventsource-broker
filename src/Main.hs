@@ -24,7 +24,7 @@ import           Data.Aeson
 import qualified System.UUID.V4 as UUID
 
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
-import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe)
+import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
 import           DB (DB, Failure, openDB, closeDB)
 
@@ -229,8 +229,8 @@ getTransport :: Snap (IO ServerEvent -> IO () -> Snap ())
 getTransport = withRequest $ \request -> do
     iframe <- getParam "transport"
     case (iframe, getHeader "X-Requested-With" request) of
-      (Just "iframe" , _                    ) -> do
-          return eventSourceIframe
+      (Just "iframe" , _                    ) -> return eventSourceIframe
+      (Just "script.js" , _                 ) -> return eventSourceScript
       (_             , Just "XMLHttpRequest") -> return eventSourceResponse
       (_             , _                    ) -> return eventSourceStream
 

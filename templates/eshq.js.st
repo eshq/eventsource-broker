@@ -56,38 +56,56 @@
     });
   };
 
-  var openChannel = function(channel, socket) {
-      if (window.postMessage) {
-        var iframe = document.createElement("iframe");
-        iframe.setAttribute("style", "display: none;");
-        iframe.setAttribute("src", origin + "/iframe?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
-        document.body.appendChild(iframe);
-        subs[channel].frame = iframe;
-        subs[channel].socket = socket;
-      } else {
-        var iframe = new ActiveXObject("htmlfile");
-        iframe.open();
-        iframe.write("<html><script>document.domain='ws.webpop.local'</script></html>");
-        iframe.parentWindow.ESHQ = function(e) { 
-          switch(e.type) {
-            case "message":
-              subs[channel].dispatch({eshqEvent: "message", originalEvent: {type: e.name, id: e.id, data: e.data.join("")}}); 
-              break;
-            case "comment":
-            case "retry":
-              break;
-            case "open":
-              subs[channel].dispatch({eshqEvent: "open", originalEvent: {}});
-              break;
-          }
-        };
-        iframe.close();
-        var ifrDiv = iframe.createElement("div");
-        iframe.appendChild(ifrDiv);
-        ifrDiv.innerHTML = "<iframe src='" + origin + "/eventsource/iframe?channel=" + channel + "&socket=" + socket + "'></iframe>";
-        subs[channel].frame = iframe;
-        subs[channel].socket = socket;
+  var eventSourceChannel = function(channel, socket) {
+    var iframe = document.createElement("iframe");
+    iframe.setAttribute("style", "display: none;");
+    iframe.setAttribute("src", origin + "/iframe?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
+    document.body.appendChild(iframe);
+    subs[channel].frame = iframe;
+    subs[channel].socket = socket;
+  };
+
+  var openScriptTransport = function(iframe, socket) {
+    var head = iframe.getElementsByTagName("head")[0];
+    var o = iframe.getElementsByTagName("script")[0];
+    if (o) o.parentNode.removeChild(o);
+
+    var s = iframe.createElement("script");
+    s.setAttribute("src", origin + "/eventsource/script.js?socket=" + socket + "&t=" + new Date().getTime());
+    head.appendChild(s);
+  };
+
+  var scriptTagChannel = function(channel, socket) {
+    var iframe = new ActiveXObject("htmlfile");
+    iframe.open();
+    iframe.write("<html><head></head></html>");
+    iframe.parentWindow.ESHQ = function(e) { 
+      openScriptTransport(iframe, socket);
+      switch(e.type) {
+        case "message":
+          subs[channel].dispatch({eshqEvent: "message", originalEvent: {type: e.name, id: e.id, data: e.data.join("")}}); 
+          break;
+        case "comment":
+        case "retry":
+          break;
+        case "open":
+          subs[channel].dispatch({eshqEvent: "open", originalEvent: {}});
+          break;
       }
+    };
+    iframe.close();
+
+    // TODO: handle this better
+    openScriptTransport(iframe, socket);
+    subs[channel].dispatch({eshqEvent: "open", originalEvent: {}});
+    subs[channel].frame = iframe;
+    subs[channel].socket = socket;
+  };
+
+  var openChannel = function(channel, socket) {
+    window.postMessage ?
+      eventSourceChannel(channel, socket) :
+      scriptTagChannel(channel, socket);
   };
 
   var ESHQ = function(channel, options) {

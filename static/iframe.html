@@ -23,6 +23,10 @@ var post = function(path, data, callback) {
 	xhr.send(data);
 };
 
+var sendToParent = function(d) {
+  parent.postMessage(d, "*");
+};
+
 setTimeout(function() {
   // on success
   var evtSrc  = new EventSource( "/eventsource?socket=" + socket );
