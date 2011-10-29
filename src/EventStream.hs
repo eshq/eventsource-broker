@@ -128,7 +128,7 @@ flushAfter b = b `mappend` flush
 {-|
     Send a comment with the string "ping" to the client.
 -}
-pingEvent = CommentEvent (fromString "ping")
+pingEvent = ServerEvent (Just $ fromString "ping") Nothing [fromString "{}"]
 
 
 iframeHead = [
@@ -176,7 +176,6 @@ scriptTagBuilder e = Just $ flushAfter $
 
 eventSourceEnum header source builder timeoutAction finalizer = prepend header
   where
-    withInitialPing (Continue k) = k (Chunks [fromJust . builder $ pingEvent]) >>== go
     prepend x (Continue k) = do
       k (Chunks (x ++ [flush])) >>== go
     prepend [] (Continue k) = go (Continue k)

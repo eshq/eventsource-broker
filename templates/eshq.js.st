@@ -1,11 +1,11 @@
 (function() {
   var origin = "$origin$";
 
-	if (typeof(window.addEventListener) == "undefined") {
-		window.addEventListener = function(name, fn) {
-			window.attachEvent("on" + name, fn);
-		};
-	}
+  if (typeof(window.addEventListener) == "undefined") {
+    window.addEventListener = function(name, fn) {
+      window.attachEvent("on" + name, fn);
+    };
+  }
 
   var post = function(path, data, callback) {
     var xhr = new XMLHttpRequest();
@@ -15,15 +15,48 @@
     xhr.send(data);
   };
 
-  var Sub = function(es) {
+  var Sub = function(es, channel, options) {
     this.es      = es;
+    this.channel = channel;
+    this.options = options;
   };
 
   Sub.prototype.dispatch = function(data) {
-    this.es._trigger(data.eshqEvent, data.originalEvent);
+    this.t = new Date().getTime();
+    if (data.eshqEvent !== "ping") {
+      this.es._trigger(data.eshqEvent, data.originalEvent);
+    }
+  };
+
+  Sub.prototype.postMsg = function(action, data) {
+    this.frame.contentWindow.postMessage(JSON.stringify({
+      action: action,
+      data: data
+    }), "*");
+  };
+
+  Sub.prototype.connect = function() {
+    if (this.frame) {
+      if (this.frame.parentNode) {
+        this.frame.parentNode.removeChild(this.frame);
+      } else {
+        this.frame = null;
+      }
+    }
+    getSocket(this.channel, {url: this.options.auth_url || "/eshq/socket", presence_id: this.options.presence_id});
   };
 
   var subs = {};
+
+  var checkSubs = function() {
+    for (var channel in subs) {
+      if (new Date().getTime() - subs[channel].t > 30000) {
+        subs[channel].connect();
+      }
+    }
+  };
+
+  setInterval(checkSubs, 10000);
 
   var onMessage = function(event) {
     if (event.origin !== origin) { return; }
@@ -82,6 +115,9 @@
     iframe.parentWindow.ESHQ = function(e) { 
       openScriptTransport(iframe, socket);
       switch(e.type) {
+        case "ping":
+          sub[channel].dispatch({eshqEvent: "ping"});
+          break;
         case "message":
           subs[channel].dispatch({eshqEvent: "message", originalEvent: {type: e.name, id: e.id, data: e.data.join("")}}); 
           break;
@@ -112,19 +148,21 @@
     if ( !(this instanceof ESHQ)) return new ESHQ(channel, options);
 
     this.sub = subs[channel] = new Sub(this, channel, options || {});
-    getSocket(channel, {url: options.auth_url || "/eshq/socket", presence_id: options.presence_id});
+    this.sub.connect();
   };
 
   ESHQ.prototype = {
     _listeners: {},
     _trigger: function(type, event) {
       var fn = this["on" + type];
-      if (fn) fn.call(null, event);
       if (type == "message") {
         var listeners = this._listeners[event.type] || [];
         for (var i=0; i<listeners.lengt; i++) {
           listeners[i].call(null, event);
         }
+        if (event.type == "message" && fn) fn.call(null, event);
+      } else {
+        if (fn) fn.call(null, event);
       }
     },
     onopen: null,
@@ -133,9 +171,12 @@
     addEventListener: function(type, fn) {
       this._listeners[type] = this._listeners[type] || [];
       this._listeners[type].push(fn);
+      if (window.postMessage) {
+        this.sub.postMsg("bind");
+      }
     },
     send: window.postMessage ? function(data) {
-      this.sub.frame.contentWindow.postMessage(data, "*");
+      this.sub.postMsg("send", data);
     } : function(data) {
       var iframe = document.createElement("iframe");
       var uniqueString = new Date().getTime();

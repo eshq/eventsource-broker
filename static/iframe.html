@@ -23,44 +23,49 @@ var post = function(path, data, callback) {
 	xhr.send(data);
 };
 
-var sendToParent = function(d) {
-  parent.postMessage(d, "*");
+var sendToParent = function(type, channel, e) {
+  parent.postMessage(JSON.stringify({
+    eshqEvent: type,
+    channel: channel,
+    originalEvent: e
+  }), "*");
 };
+
+var evtSrc;
 
 setTimeout(function() {
   // on success
-  var evtSrc  = new EventSource( "/eventsource?socket=" + socket );
+  evtSrc  = new EventSource( "/eventsource?socket=" + socket );
 
   if (evtSrc.readyState > 0) {
-    parent.postMessage('{"eshqEvent":"open", "channel": "' + channel +'"}', "*");
+    sendToParent("open", channel, {});
   } else {
     evtSrc.onopen = function(e) {
-      parent.postMessage(JSON.stringify({
-        eshqEvent:"open",
-        channel: channel,
-        originalEvent: e
-      }), "*");
+      sendToParent("open", channel, e);
     };
   }
 
   evtSrc.onerror = function(e) {
-    parent.postMessage(JSON.stringify({
-      eshqEvent: "error",
-      channel: channel,
-      originalEvent: e
-    }), "*");
+    sendToParent("error", channel, e);
   };
 
   evtSrc.onmessage = function(e) {
-    parent.postMessage(JSON.stringify({
-      eshqEvent: "message",
-      channel: channel,
-      originalEvent: e
-    }), "*");
+    sendToParent("message", channel, e);
   };
+
+  evtSrc.addEventListener("ping", function(e) {
+    sendToParent("ping", channel, {});
+  }, false);
 }, 0);
 
 window.addEventListener("message", function(e) {
-  post("/socket/" + socket, "data=" + encodeURIComponent(e.data));
+  var data = JSON.parse(e.data);
+  if (data.action == "send") {
+    post("/socket/" + socket, "data=" + encodeURIComponent(data.data));
+  } else if (data.action == "bind") {
+    evtSrc.addEventListener(data.event, function(e) {
+      sendToParent("message", channel, e);
+    }, false)
+  }
 }, false);
 </script>
