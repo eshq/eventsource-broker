@@ -25,10 +25,14 @@ instance ToJSON Connection where
     toJSON conn = object ["socket" .= socketId conn, "channel" .= channel conn, "presence_id" .= presenceId conn]
 
 
-data BrokerInfo = BrokerInfo UString Int
+data BrokerInfo = BrokerInfo
+                { isMaster :: Maybe Bool
+                , connId :: UString
+                , connCount :: Int
+                }
 
 instance ToJSON BrokerInfo where
-    toJSON (BrokerInfo uuid count) = object ["broker_id" .= uuid, "connections" .= count]
+    toJSON (BrokerInfo master uuid count) = object ["broker_id" .= uuid, "connections" .= count, "master" .= master]
 
 
 -- |Store a "connection" to the broker in the database
@@ -94,7 +98,7 @@ constructor doc = Connection {
 
 count :: DB -> UString -> IO (Either Failure BrokerInfo)
 count db bid =
-    run db $ DB.count (select ["broker" =: bid] "connections") >>= return . BrokerInfo bid
+    run db $ DB.count (select ["broker" =: bid] "connections") >>= return . BrokerInfo Nothing bid
 
 
 disconnectTime :: Maybe Int -> IO (Maybe UTCTime)

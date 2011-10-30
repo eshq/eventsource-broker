@@ -14,7 +14,7 @@ data Event = Event
            , eventData :: UString
            , eventChan :: UString
            , eventUser :: UString
-           }
+           } deriving (Show)
 
 
 store :: DB -> Event -> IO (Either Failure Value)

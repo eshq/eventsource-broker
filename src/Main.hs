@@ -4,7 +4,7 @@ module Main where
 import           Control.Applicative ((<|>))
 import           Control.Monad (forever)
 import           Control.Monad.Trans (liftIO)
-import           Control.Concurrent.MVar (newMVar, readMVar, swapMVar)
+import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar)
 
 import           Control.Concurrent (forkIO, threadDelay)
 import           Control.Concurrent.Chan (Chan, readChan, dupChan)
@@ -71,7 +71,7 @@ main = do
                 ("socket/:socket", postEventFromSocket db publisher queue)
             ]) <|>
             method GET (route [
-                ("broker", brokerInfo db uuid),
+                ("broker", brokerInfo master db uuid),
                 ("channel/:channel/users", channelInfo db),
                 ("eventsource/:transport", eventSource db uuid listener),
                 ("eventsource", eventSource db uuid listener)
@@ -103,24 +103,28 @@ writeToBuffer master db uuid chan = forever $ do
     isMaster <- readMVar master
     if isMaster
         then do
-          Event.store db $ Event.Event {
+          let event' = Event.Event {
             Event.eventName = toUS $ amqpName event,
             Event.eventId   = toUS $ amqpId event,
             Event.eventData = ufrombs $ amqpData event,
             Event.eventChan = ufrombs $ amqpChannel event,
             Event.eventUser = ufrombs $ amqpUser event
           }
+          putStrLn $ "storing event" ++ (show event')
+          Event.store db event'
           return ()
         else return ()
   where
     toUS = fmap ufrombs
 
 
-brokerInfo :: DB -> UString -> Snap ()
-brokerInfo db uuid = do
+brokerInfo :: MVar Bool -> DB -> UString -> Snap ()
+brokerInfo master db uuid = do
     result <- liftIO $ Conn.count db uuid
     case result of
-        Right info -> sendJSON info
+        Right info -> do
+            isMaster <- liftIO . readMVar $ master
+            sendJSON $ info {Conn.isMaster = Just isMaster}
         Left e -> do
             logError (BS.pack $ show e)
             showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
