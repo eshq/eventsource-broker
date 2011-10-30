@@ -113,7 +113,9 @@ writeToBuffer master db uuid chan = forever $ do
           putStrLn $ "storing event" ++ (show event')
           Event.store db event'
           return ()
-        else return ()
+        else do
+          putStrLn "Not master - not storing"
+          return ()
   where
     toUS = fmap ufrombs
 
