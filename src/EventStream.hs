@@ -53,7 +53,7 @@ import Control.Monad.Trans
 import Control.Concurrent
 import Control.Exception (onException)
 import Data.Monoid
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, catMaybes)
 import Data.Aeson
 import Data.Enumerator (Step(..), Stream(..), (>>==), returnI)
 -- import Data.Enumerator.List (generateM)
@@ -200,10 +200,10 @@ eventSourceEnum header source builder timeoutAction finalizer = prepend header
     event to a builder. If that function returns Nothing the stream is closed.
 -}
 eventStream :: [Builder] -> IO ServerEvent -> (ServerEvent -> Maybe Builder) -> IO () -> Snap ()
-eventStream header source builder finalizer = do
+eventStream bufferEvents source builder finalizer = do
     timeoutAction <- getTimeoutAction
     modifyResponse $ setResponseBody $
-        eventSourceEnum header source builder timeoutAction finalizer
+        eventSourceEnum bufferEvents source builder timeoutAction finalizer
 
 
 {-|
@@ -225,26 +225,30 @@ eventResponse source builder finalizer = do
     Sets up this request to act as an event stream, obtaining its events from
     polling the given IO action.
 -}
-eventSourceStream source finalizer = do
+eventSourceStream buffer source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
-    eventStream [fromJust . eventSourceBuilder $ pingEvent] source eventSourceBuilder finalizer
+    eventStream (catMaybes $ map eventSourceBuilder $ bufferEvents buffer) source eventSourceBuilder finalizer
+  where
+    bufferEvents (Just []) = [pingEvent]
+    bufferEvents (Just es) = es
+    bufferEvents Nothing   = [pingEvent]
 
 
 -- |Long polling fallback - sends a single response when an event is pulled
-eventSourceResponse source finalizer = do
+eventSourceResponse buffer source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
     eventResponse source eventSourceBuilder finalizer
 
 
-eventSourceIframe source finalizer = do
+eventSourceIframe buffer source finalizer = do
     modifyResponse $ setContentType "text/html"
                    . setHeader "Cache-Control" "no-cache"
     eventStream (iframeHead ++ [fromString . take 4000 . repeat $ ' '] ++ [flush]) source scriptTagBuilder finalizer
 
 
-eventSourceScript source finalizer = do
+eventSourceScript buffer source finalizer = do
     modifyResponse $ setContentType "text/javascript"
                    . setHeader "Cache-Control" "no-cache"
     eventResponse source scriptBuilder finalizer

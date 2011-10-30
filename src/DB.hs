@@ -3,6 +3,9 @@ module DB
     (
       DB,
       Document,
+      Cursor,
+      Query (..),
+      ObjectId,
       Failure,
       withDB,
       openDB,
@@ -16,8 +19,10 @@ module DB
       runCommand,
       delete,
       select,
+      find,
       findOne,
       count,
+      rest,
       look,
       lookup,
       distinct,
@@ -41,9 +46,9 @@ import           Data.Maybe (fromJust)
 import           Data.Aeson
 
 import          Database.MongoDB (
-                    Action, Pipe, Database, Document, Failure, AccessMode(..), runIOE, connect, auth, access,
-                    readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand,
-                    findOne, count, look, lookup, distinct, at, genObjectId
+                    Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..), runIOE, connect, auth, access,
+                    readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand, rest,
+                    find, findOne, count, look, lookup, distinct, at, genObjectId
                  )
 
 -- |A connection to a mongoDB

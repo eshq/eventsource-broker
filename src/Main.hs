@@ -10,7 +10,7 @@ import           Control.Concurrent (forkIO, threadDelay)
 import           Control.Concurrent.Chan (Chan, readChan, dupChan)
 import           Control.Exception (bracket)
 
-import           Snap.Types
+import           Snap.Core
 import           Snap.Util.FileServe (serveFile, serveDirectory)
 import           Snap.Http.Server( quickHttpServe)
 import           Snap.Util.GZip (noCompression)
@@ -28,7 +28,7 @@ import qualified System.UUID.V4 as UUID
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
-import           DB (DB, Failure, openDB, closeDB, genObjectId)
+import           DB (DB, Failure, openDB, closeDB, genObjectId, rest)
 
 import qualified Models.Connection as Conn
 import qualified Models.Channel as Channel
@@ -190,12 +190,21 @@ eventSource :: DB -> UString -> Chan AMQPEvent -> Snap ()
 eventSource db uuid chan = do
     noCompression
     chan'   <- liftIO $ dupChan chan
-    liftIO . putStrLn $ "Doing the eventSource thing"
     withConnection db $ \conn -> do
       liftIO $ before conn
       transport <- getTransport
-      transport (filterEvents conn chan') (after conn)
+      lastId    <- fmap (getHeader "Last-Event-ID") getRequest <|> getParam "last-event-id"
+      events    <- liftIO $ buffer conn lastId
+      transport (fmap (map toEvent) events) (filterEvents conn chan') (after conn)
   where
+    buffer conn (Just lastId) = do
+        events <- Event.since db (Conn.userId conn) (Conn.channel conn) (ufrombs lastId)
+        case events of
+          Right docs -> return $ Just docs
+          Left _ -> return Nothing
+    buffer conn Nothing = return Nothing
+    toEvent e = ServerEvent (fmap toB $ Event.eventName e) (fmap toB $ Event.eventId e) ([toB $ Event.eventData e])
+    toB  = fromByteString . utobs
     before conn = Conn.store db conn { Conn.brokerId = uuid } >> return ()
     after conn = Conn.mark db (conn { Conn.disconnectAt = Just 10 } ) >> return ()
 
@@ -268,7 +277,7 @@ sendJSON val = do
 
 
 -- |Returns the transport method to use for this request
-getTransport :: Snap (IO ServerEvent -> IO () -> Snap ())
+getTransport :: Snap (Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ())
 getTransport = withRequest $ \request -> do
     iframe <- getParam "transport"
     case (iframe, getHeader "X-Requested-With" request) of
