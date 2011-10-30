@@ -76,7 +76,6 @@ openEventChannel queue = do
     bindQueue chan queue exchange queue
 
     listener <- newChan
-    forkIO $ fix $ \loop -> readChan listener >> loop
     consumeMsgs chan queue NoAck (sendTo listener)
     return (chan, listener)
 

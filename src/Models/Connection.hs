@@ -35,7 +35,7 @@ instance ToJSON BrokerInfo where
 -- If the disconnect is set, the connection will be marked for
 -- disconnection during a coming sweep
 store :: DB -> Connection -> IO (Either Failure ())
-store db conn= do
+store db conn = do
     time <- disconnectTime (disconnectAt conn)
     run db $ repsert (select s "connections") (d time)
   where

@@ -7,14 +7,18 @@ module DB
       withDB,
       openDB,
       closeDB,
+      genObjectId,
       returnModel,
       run,
+      insert,
       repsert,
       modify,
+      runCommand,
       delete,
       select,
       findOne,
       count,
+      look,
       lookup,
       distinct,
       at,
@@ -38,8 +42,8 @@ import           Data.Aeson
 
 import          Database.MongoDB (
                     Action, Pipe, Database, Document, Failure, AccessMode(..), runIOE, connect, auth, access,
-                    readHostPort, close, repsert, modify, delete, (=:), select,
-                    findOne, count, lookup, distinct, at
+                    readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand,
+                    findOne, count, look, lookup, distinct, at, genObjectId
                  )
 
 -- |A connection to a mongoDB

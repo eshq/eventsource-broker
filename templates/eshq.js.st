@@ -22,7 +22,7 @@
   };
 
   Sub.prototype.dispatch = function(data) {
-    this.t = new Date().getTime();
+    if (data.eshqEvent !== "error") this.t = new Date().getTime();
     if (data.eshqEvent !== "ping") {
       this.es._trigger(data.eshqEvent, data.originalEvent);
     }

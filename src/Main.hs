@@ -4,6 +4,8 @@ module Main where
 import           Control.Applicative ((<|>))
 import           Control.Monad (forever)
 import           Control.Monad.Trans (liftIO)
+import           Control.Concurrent.MVar (newMVar, readMVar, swapMVar)
+
 import           Control.Concurrent (forkIO, threadDelay)
 import           Control.Concurrent.Chan (Chan, readChan, dupChan)
 import           Control.Exception (bracket)
@@ -26,11 +28,13 @@ import qualified System.UUID.V4 as UUID
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
-import           DB (DB, Failure, openDB, closeDB)
+import           DB (DB, Failure, openDB, closeDB, genObjectId)
 
 import qualified Models.Connection as Conn
 import qualified Models.Channel as Channel
 import qualified Models.User as User
+import qualified Models.Event as Event
+import qualified Models.Broker as Broker
 
 import           System.Posix.Env(getEnvDefault)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
@@ -45,6 +49,8 @@ main = do
     origin    <- getEnvDefault "ORIGIN" "http://127.0.0.1"
     templates <- directoryGroup "templates" :: IO (STGroup ByteString)
 
+    master    <- newMVar False
+
     let queue = US.append "eventsource." uuid
     let Just js = fmap (render . (setAttribute "origin" origin)) (getStringTemplate "eshq.js" templates)
 
@@ -52,6 +58,8 @@ main = do
 
     bracket openDB (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
         forkIO $ connectionSweeper db uuid
+        forkIO $ writeToBuffer master db uuid listener
+        forkIO $ setMaster master db uuid
         quickHttpServe $
             ifTop (serveFile "static/index.html") <|>
             path "iframe" (serveFile "static/iframe.html") <|>
@@ -75,6 +83,37 @@ connectionSweeper :: DB -> UString -> IO ()
 connectionSweeper db uuid = forever $ do
     threadDelay 15000000
     Conn.sweep db uuid
+
+
+setMaster master db uuid = forever $ do
+    threadDelay 1500000
+    isMaster <- readMVar master
+    if isMaster
+        then do
+            renewed <- Broker.renewMaster db uuid
+            if renewed then return True else swapMVar master False
+        else do
+            claimed <- Broker.claimMaster db uuid
+            if claimed then swapMVar master True else return False
+
+
+
+writeToBuffer master db uuid chan = forever $ do
+    event    <- readChan chan
+    isMaster <- readMVar master
+    if isMaster
+        then do
+          Event.store db $ Event.Event {
+            Event.eventName = toUS $ amqpName event,
+            Event.eventId   = toUS $ amqpId event,
+            Event.eventData = ufrombs $ amqpData event,
+            Event.eventChan = ufrombs $ amqpChannel event,
+            Event.eventUser = ufrombs $ amqpUser event
+          }
+          return ()
+        else return ()
+  where
+    toUS = fmap ufrombs
 
 
 brokerInfo :: DB -> UString -> Snap ()
@@ -127,8 +166,10 @@ postEvent db chan queue =
     withAuth db $ \user ->
       withParam "channel" $ \channel ->
           withParam "data" $ \dataParam -> do
+              name <- getParam "name"
+              oid  <- liftIO . fmap (BS.pack . show) $ genObjectId
               liftIO $ publishEvent chan (show queue) $
-                  AMQPEvent (utobs channel) (utobs $ User.apiKey user) (utobs dataParam) Nothing Nothing
+                  AMQPEvent (utobs channel) (utobs $ User.apiKey user) (utobs dataParam) (Just oid) name
               writeBS "Ok"
 
 
@@ -137,8 +178,10 @@ postEventFromSocket :: DB -> Channel -> UString -> Snap ()
 postEventFromSocket db chan queue =
     withConnection db $ \conn ->
         withParam "data" $ \dataParam -> do
+            name <- getParam "name"
+            oid  <- liftIO . fmap (BS.pack . show) $ genObjectId
             liftIO $ publishEvent chan (show queue) $ 
-                AMQPEvent (utobs $ Conn.channel conn) (utobs $ Conn.userId conn) (utobs dataParam) Nothing Nothing
+                AMQPEvent (utobs $ Conn.channel conn) (utobs $ Conn.userId conn) (utobs dataParam) (Just oid) name
             writeBS "Ok"
 
 
@@ -240,10 +283,10 @@ filterEvents :: Conn.Connection -> Chan AMQPEvent -> IO ServerEvent
 filterEvents conn chan = do
     event <- readChan chan
     if amqpUser event == userId && amqpChannel event == channel
-        then return $ ServerEvent (toBS $ amqpName event) (toBS $ amqpId event) [fromByteString $ amqpData event]
+        then return $ ServerEvent (toB $ amqpName event) (toB $ amqpId event) [fromByteString $ amqpData event]
         else filterEvents conn chan
   where
-    toBS    = fmap fromByteString
+    toB     = fmap fromByteString
     userId  = utobs $ Conn.userId conn
     channel = utobs $ Conn.channel conn
 
