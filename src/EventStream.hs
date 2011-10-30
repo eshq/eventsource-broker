@@ -174,11 +174,16 @@ scriptTagBuilder e = Just $ flushAfter $
       fromString "<script>" `mappend` eventToScript e `mappend` fromString "</script>" `mappend` nl
 
 
+bufferToBuilder :: Maybe [ServerEvent] -> (ServerEvent -> Maybe Builder) -> [Builder]
+bufferToBuilder (Just buffer) builder = catMaybes $ map builder buffer
+bufferToBuilder Nothing _ = []
+
+
 eventSourceEnum header source builder timeoutAction finalizer = prepend header
   where
+    prepend [] (Continue k) = go (Continue k)
     prepend x (Continue k) = do
       k (Chunks (x ++ [flush])) >>== go
-    prepend [] (Continue k) = go (Continue k)
     prepend _  step = do
         liftIO finalizer
         returnI step
@@ -210,8 +215,8 @@ eventStream bufferEvents source builder finalizer = do
     Return a single response when the source returns an event. Takes a function
     used to convert the event to a builder.
 -}
-eventResponse :: IO ServerEvent -> (ServerEvent -> Maybe Builder) -> IO () -> Snap ()
-eventResponse source builder finalizer = do
+eventResponse :: [Builder] -> IO ServerEvent -> (ServerEvent -> Maybe Builder) -> IO () -> Snap ()
+eventResponse [] source builder finalizer = do
     event <- liftIO $ source `onException` finalizer
     case builder event of
       Just b  -> writeBuilder b
@@ -219,12 +224,15 @@ eventResponse source builder finalizer = do
         liftIO finalizer
         response <- getResponse
         finishWith response
+eventResponse buffer _ _ finalizer = do
+    mapM_ writeBuilder buffer
 
 
 {-|
     Sets up this request to act as an event stream, obtaining its events from
     polling the given IO action.
 -}
+eventSourceStream :: Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ()
 eventSourceStream buffer source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
@@ -236,19 +244,27 @@ eventSourceStream buffer source finalizer = do
 
 
 -- |Long polling fallback - sends a single response when an event is pulled
+eventSourceResponse :: Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ()
 eventSourceResponse buffer source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
-    eventResponse source eventSourceBuilder finalizer
+    eventResponse (bufferToBuilder buffer eventSourceBuilder) source eventSourceBuilder finalizer
 
 
+eventSourceIframe :: Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ()
 eventSourceIframe buffer source finalizer = do
     modifyResponse $ setContentType "text/html"
                    . setHeader "Cache-Control" "no-cache"
-    eventStream (iframeHead ++ [fromString . take 4000 . repeat $ ' '] ++ [flush]) source scriptTagBuilder finalizer
+    eventStream header source scriptTagBuilder finalizer
+  where
+    header = iframeHead ++
+            [fromString . take 4000 . repeat $ ' '] ++
+            (bufferToBuilder buffer scriptTagBuilder) ++
+            [flush]
 
 
+eventSourceScript :: Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ()
 eventSourceScript buffer source finalizer = do
     modifyResponse $ setContentType "text/javascript"
                    . setHeader "Cache-Control" "no-cache"
-    eventResponse source scriptBuilder finalizer
+    eventResponse (bufferToBuilder buffer scriptBuilder) source scriptBuilder finalizer
