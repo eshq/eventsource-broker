@@ -58,6 +58,7 @@ main = do
 
     bracket openDB (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
         forkIO $ connectionSweeper db uuid
+        putStrLn "Forking writeBuilder"
         forkIO $ writeToBuffer master db uuid listener
         forkIO $ setMaster master db uuid
         quickHttpServe $
@@ -99,8 +100,11 @@ setMaster master db uuid = forever $ do
 
 
 writeToBuffer master db uuid chan = forever $ do
+    putStrLn "writeToBuffer loop"
     event    <- readChan chan
+    putStrLn "got event"
     isMaster <- readMVar master
+    putStrLn "got master"
     if isMaster
         then do
           let event' = Event.Event {
