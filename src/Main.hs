@@ -115,7 +115,8 @@ writeToBuffer master db uuid chan = forever $ do
             Event.eventUser = ufrombs $ amqpUser event
           }
           putStrLn $ "storing event" ++ (show event')
-          Event.store db event'
+          result <- Event.store db event'
+          putStrLn $ "result: " ++ (show result)
           return ()
         else do
           putStrLn "Not master - not storing"
