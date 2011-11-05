@@ -11,7 +11,7 @@
 <script>
 var channel = document.location.search.match(/channel=([^&]+)/)[1];
 var socket  = document.location.search.match(/socket=([^&]+)/)[1];
-
+var lastId  = document.location.search.match(/last-event-id=[^&]+/);
 
 var post = function(path, data, callback) {
 	var xhr = new XMLHttpRequest();
@@ -33,9 +33,13 @@ var sendToParent = function(type, channel, e) {
 
 var evtSrc;
 
+// Wrap in a timeout to avoid loading spinner in chrome
 setTimeout(function() {
+  var src = "/eventsource?socket=" + socket;
+  if (lastId) src += "&" + lastId;
+
   // on success
-  evtSrc  = new EventSource( "/eventsource?socket=" + socket );
+  evtSrc  = new EventSource(src);
 
   if (evtSrc.readyState > 0) {
     sendToParent("open", channel, {});

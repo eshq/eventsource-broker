@@ -19,11 +19,13 @@
     this.es      = es;
     this.channel = channel;
     this.options = options;
+    this.lastId  = null;
   };
 
   Sub.prototype.dispatch = function(data) {
     if (data.eshqEvent !== "error") this.t = new Date().getTime();
     if (data.eshqEvent !== "ping") {
+      this.lastId = data.originalEvent && data.originalEvent.id;
       this.es._trigger(data.eshqEvent, data.originalEvent);
     }
   };
@@ -84,16 +86,22 @@
     post(options.url, data, function() {
       if (this.readyState == 4 && this.status == 200) {
         var resp = JSON.parse(this.responseText);
-        openChannel(channel, resp.socket);
+        openChannel(channel, resp.socket, options.lastId);
       }
     });
   };
 
-  var eventSourceChannel = function(channel, socket) {
-    var iframe = document.createElement("iframe");
+  var eventSourceChannel = function(channel, socket, lastId) {
+    var iframe = document.createElement("iframe"),
+        src    = origin + "/iframe?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime();
+
+    if (lastId) src += "&last-event-id=" + lastId;
+
     iframe.setAttribute("style", "display: none;");
-    iframe.setAttribute("src", origin + "/iframe?channel=" + channel + "&socket=" + socket + "&t=" + new Date().getTime());
+    iframe.setAttribute("src", src);
+
     document.body.appendChild(iframe);
+
     subs[channel].frame = iframe;
     subs[channel].socket = socket;
   };
@@ -103,17 +111,20 @@
     var o = iframe.getElementsByTagName("script")[0];
     if (o) o.parentNode.removeChild(o);
 
-    var s = iframe.createElement("script");
-    s.setAttribute("src", origin + "/eventsource/script.js?socket=" + socket + "&t=" + new Date().getTime());
+    var script = iframe.createElement("script");
+    var src = origin + "/eventsource/script.js?socket=" + socket + "&t=" + new Date().getTime();
+    if (lastId) scr += "&last-event-id=" + lastId;
+    script.setAttribute("src", src);
     head.appendChild(s);
   };
 
-  var scriptTagChannel = function(channel, socket) {
+  var scriptTagChannel = function(channel, socket, lastId) {
     var iframe = new ActiveXObject("htmlfile");
     iframe.open();
     iframe.write("<html><head></head></html>");
     iframe.parentWindow.ESHQ = function(e) { 
-      openScriptTransport(iframe, socket);
+      lastId = e.id;
+      openScriptTransport(iframe, socket, lastId);
       switch(e.type) {
         case "ping":
           sub[channel].dispatch({eshqEvent: "ping"});
@@ -138,10 +149,10 @@
     subs[channel].socket = socket;
   };
 
-  var openChannel = function(channel, socket) {
+  var openChannel = function(channel, socket, lastId) {
     window.postMessage ?
-      eventSourceChannel(channel, socket) :
-      scriptTagChannel(channel, socket);
+      eventSourceChannel(channel, socket, lastId) :
+      scriptTagChannel(channel, socket, lastId);
   };
 
   var ESHQ = function(channel, options) {
