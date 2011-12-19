@@ -45,31 +45,26 @@ import           Data.CompactString (CompactString, Encoding, toByteString)
 import           Data.CompactString.Encodings (UTF8)
 import           Data.Maybe (fromJust)
 import           Data.Aeson
+import           Data.Configurator.Types (Config)
+import qualified Data.Configurator as Conf
 
 import          Database.MongoDB (
                     Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..), runIOE, connect, auth, access,
                     readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand, rest,
-                    find, findOne, count, look, lookup, distinct, at, genObjectId, u
+                    find, findOne, count, look, lookup, distinct, at, genObjectId
                  )
 
 -- |A connection to a mongoDB
 data DB = DB { mongoPipe :: Pipe, mongoDB :: Database }
-
-
--- |Credentials for authenticating with a mongoDB
-data Credentials = NoAuth
-                 | Credentials { crUser :: UString, crPass :: UString }
-
 
 instance Encoding a => ToJSON (CompactString a) where
   toJSON = toJSON . toByteString
 
 -- |Opens a connection to the database speficied in the MONGO_URL
 -- environment variable
-openDB :: IO DB
-openDB = do
-    mongoURI <- getEnvDefault "MONGO_URL" "mongodb://127.0.0.1:27017/eventsourcehq"
-    openConn mongoURI
+openDB :: Config -> IO DB
+openDB conf = do
+    openConn conf
 
 
 -- |Close the connection to the database
@@ -78,41 +73,36 @@ closeDB = closeConn
 
 
 -- |Bracket around opening and closing the DB connection
-withDB :: (DB -> IO ()) -> IO ()
-withDB f = do
-    mongoURI <- getEnvDefault "MONGO_URL" "mongodb://127.0.0.1:27017/eventsourcehq"
-    bracket (openConn mongoURI) closeConn f	
+withDB :: Config -> (DB -> IO ()) -> IO ()
+withDB config f = do
+    bracket (openConn config) closeConn f
 
 
 returnModel :: (Document -> a) -> Either Failure (Maybe Document) -> Either Failure (Maybe a)
 returnModel constructor = fmap (fmap constructor)
 
 
-openConn :: String -> IO DB
-openConn mongoURI = do
-    let uri       = fromJust $ parseURI mongoURI
-    let creds     = case fmap (split ":") (uriUserInfo uri) of
-                        Nothing     -> NoAuth
-                        Just [us, pw] -> Credentials (u us) (u pw)
-    let hostname  = fromJust $ uriRegName uri
-    let port      = case uriPort uri of
-                        Just p  -> show p
-                        Nothing -> "27017"
+openConn :: Config -> IO DB
+openConn config = do
+    user   <- Conf.lookup config "mongodb.user"
+    pass   <- Conf.lookup config "mongodb.pass"
+           
+    host   <- Conf.lookupDefault "127.0.0.1" config "mongodb.host"
+    port   <- Conf.lookupDefault 27017 config "mongodb.port" :: IO Int
+    dbName <- Conf.lookupDefault "eventsourcehq" config "mongodb.database"
 
-    let dbName    = u $ drop 1 (uriPath uri)
+    pipe <- runIOE $ connect (readHostPort (host ++ ":" ++ (show port)))
 
-    pipe <- runIOE $ connect (readHostPort (hostname ++ ":" ++ port))
+    let db = DB pipe (u dbName)
 
-    let db = DB pipe dbName
-
-    authenticate db creds
+    authenticate db user pass
 
     return db
 
 
-authenticate :: DB -> Credentials -> IO (Either Failure Bool)
-authenticate db NoAuth                  = return (Right True)
-authenticate db (Credentials user pass) = run db (auth user pass)
+authenticate :: DB -> (Maybe String) -> (Maybe String) -> IO (Either Failure Bool)
+authenticate db (Just user) (Just pass) = run db $ auth (u user) (u pass)
+authenticate db _ _                     = return (Right True)
 
 
 run :: DB -> Action IO a -> IO (Either Failure a)

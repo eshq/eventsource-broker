@@ -22,6 +22,7 @@ import qualified Data.UString as US
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Blaze.ByteString.Builder(fromByteString)
 import           Data.Aeson
+import qualified Data.Configurator as Conf
 
 import qualified System.UUID.V4 as UUID
 
@@ -50,6 +51,10 @@ main = do
     origin    <- getEnvDefault "ORIGIN" "http://127.0.0.1"
     templates <- directoryGroup "templates" :: IO (STGroup ByteString)
 
+    config    <- Conf.load [Conf.Required "config/app.cfg"]
+    
+    Conf.display config
+
     master    <- newMVar False
     counts    <- newMVar []
 
@@ -58,7 +63,7 @@ main = do
 
     (publisher, listener) <- openEventChannel (show queue)
 
-    bracket openDB (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
+    bracket (openDB config) (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
         forkIO $ connectionSweeper db uuid
         forkIO $ writeToBuffer master db listener counts
         forkIO $ aggregateStats db counts
