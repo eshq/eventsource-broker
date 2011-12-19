@@ -4,7 +4,7 @@ module Main where
 import           Control.Applicative ((<|>))
 import           Control.Monad (forever)
 import           Control.Monad.Trans (liftIO)
-import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar)
+import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, modifyMVar_)
 
 import           Control.Concurrent (forkIO, threadDelay)
 import           Control.Concurrent.Chan (Chan, readChan, dupChan)
@@ -28,13 +28,14 @@ import qualified System.UUID.V4 as UUID
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
-import           DB (DB, Failure, openDB, closeDB, genObjectId, rest)
+import           DB (DB, Failure, openDB, closeDB, genObjectId)
 
 import qualified Models.Connection as Conn
 import qualified Models.Channel as Channel
 import qualified Models.User as User
 import qualified Models.Event as Event
 import qualified Models.Broker as Broker
+import qualified Models.Stats as Stats
 
 import           System.Posix.Env(getEnvDefault)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
@@ -50,6 +51,7 @@ main = do
     templates <- directoryGroup "templates" :: IO (STGroup ByteString)
 
     master    <- newMVar False
+    counts    <- newMVar []
 
     let queue = US.append "eventsource." uuid
     let Just js = fmap (render . (setAttribute "origin" origin)) (getStringTemplate "eshq.js" templates)
@@ -58,7 +60,8 @@ main = do
 
     bracket openDB (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
         forkIO $ connectionSweeper db uuid
-        forkIO $ writeToBuffer master db uuid listener
+        forkIO $ writeToBuffer master db listener counts
+        forkIO $ aggregateStats db counts
         forkIO $ setMaster master db uuid
         quickHttpServe $
             ifTop (serveFile "static/index.html") <|>
@@ -85,8 +88,9 @@ connectionSweeper db uuid = forever $ do
     Conn.sweep db uuid
 
 
+setMaster :: MVar Bool -> DB -> UString -> IO ()
 setMaster master db uuid = forever $ do
-    threadDelay 1500000
+    threadDelay 1000000
     isMaster <- readMVar master
     if isMaster
         then do
@@ -97,10 +101,12 @@ setMaster master db uuid = forever $ do
             if claimed then swapMVar master True else return False
 
 
-
-writeToBuffer master db uuid chan = forever $ do
-    event    <- readChan chan
-    isMaster <- readMVar master
+writeToBuffer :: MVar Bool -> DB -> Chan AMQPEvent -> MVar [(Integer, String)] -> IO ()
+writeToBuffer master db chan counts = forever $ do
+    event      <- readChan chan
+    isMaster   <- readMVar master
+    time       <- fmap floor getPOSIXTime
+    modifyMVar_ counts $ \counts' -> return ((time, show $ amqpUser event) : counts')
     if isMaster
         then do
           let event' = Event.Event {
@@ -109,13 +115,20 @@ writeToBuffer master db uuid chan = forever $ do
             Event.eventData = ufrombs $ amqpData event,
             Event.eventChan = ufrombs $ amqpChannel event,
             Event.eventUser = ufrombs $ amqpUser event
-          }
-          result <- Event.store db event'
+          }          
+          Event.store db event'
           return ()
-        else do
-          return ()
+        else return ()
   where
     toUS = fmap ufrombs
+
+
+aggregateStats :: DB -> MVar [(Integer, String)] -> IO ()
+aggregateStats db counts = forever $ do
+    threadDelay 5000000
+    counts' <- swapMVar counts []
+    Stats.aggregateCounts db counts'
+    return ()
 
 
 brokerInfo :: MVar Bool -> DB -> UString -> Snap ()
@@ -206,7 +219,7 @@ eventSource db uuid chan = do
         case events of
           Right docs -> return $ Just docs
           Left _ -> return Nothing
-    buffer conn Nothing = return Nothing
+    buffer _ Nothing = return Nothing
     toEvent e = ServerEvent (fmap toB $ Event.eventName e) (fmap toB $ Event.eventId e) ([toB $ Event.eventData e])
     toB  = fromByteString . utobs
     before conn = Conn.store db conn { Conn.brokerId = uuid } >> return ()
@@ -262,7 +275,7 @@ withDBResult f notFound found= do
 validTime :: ByteString -> POSIXTime -> Bool
 validTime timestamp currentTime =
     let t1 = read $ BS.unpack timestamp
-        t2 = floor currentTime in
+        t2 = floor currentTime :: Integer in
         abs (t1 - t2) < 5 * 60
 
 

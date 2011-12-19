@@ -27,7 +27,8 @@ module DB
       lookup,
       distinct,
       at,
-      (=:)
+      (=:),
+      u
     ) where
 
 import           Prelude hiding (lookup)
@@ -48,7 +49,7 @@ import           Data.Aeson
 import          Database.MongoDB (
                     Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..), runIOE, connect, auth, access,
                     readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand, rest,
-                    find, findOne, count, look, lookup, distinct, at, genObjectId
+                    find, findOne, count, look, lookup, distinct, at, genObjectId, u
                  )
 
 -- |A connection to a mongoDB
@@ -80,7 +81,6 @@ closeDB = closeConn
 withDB :: (DB -> IO ()) -> IO ()
 withDB f = do
     mongoURI <- getEnvDefault "MONGO_URL" "mongodb://127.0.0.1:27017/eventsourcehq"
-
     bracket (openConn mongoURI) closeConn f	
 
 

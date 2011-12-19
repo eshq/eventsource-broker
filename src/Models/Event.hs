@@ -19,7 +19,8 @@ data Event = Event
 
 store :: DB -> Event -> IO (Either Failure Value)
 store db event = case eventId event of
-    Just _  -> run db $ insert "events" doc
+    Just _  -> do
+      run db $ insert "events" doc
     Nothing -> return $ Right Null
   where
     oid :: ObjectId
