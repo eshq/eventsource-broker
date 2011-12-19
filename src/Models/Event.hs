@@ -5,7 +5,7 @@ import           Prelude hiding (lookup)
 import           Data.UString (UString, unpack)
 import           Data.Maybe (fromJust)
 import           Database.MongoDB (Value (Null, Float), Field (..))
-import           Control.Monad.Instances
+import           Control.Monad.Instances()
 import           DB
 
 data Event = Event

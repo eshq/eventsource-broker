@@ -2,11 +2,8 @@
 module Models.Broker where
 
 import           Prelude hiding (lookup)
-import           Data.UString (UString, u)
-import qualified Data.UString as US
-import           Data.Maybe (fromJust)
+import           Data.UString (UString)
 import           Data.Time.Clock
-import           Database.MongoDB (Value (Null))
 import           DB
 
 

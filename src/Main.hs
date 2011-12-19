@@ -29,7 +29,7 @@ import qualified System.UUID.V4 as UUID
 import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
-import           DB (DB, Failure, openDB, closeDB, genObjectId)
+import           DB (DB, Failure, openDB, closeDB, createCollections, genObjectId)
 
 import qualified Models.Connection as Conn
 import qualified Models.Channel as Channel
@@ -38,7 +38,6 @@ import qualified Models.Event as Event
 import qualified Models.Broker as Broker
 import qualified Models.Stats as Stats
 
-import           System.Posix.Env(getEnvDefault)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 
 import           Text.StringTemplate
@@ -48,12 +47,10 @@ import           Text.StringTemplate
 main :: IO ()
 main = do
     uuid      <- fmap (u . show) UUID.uuid
-    origin    <- getEnvDefault "ORIGIN" "http://127.0.0.1"
     templates <- directoryGroup "templates" :: IO (STGroup ByteString)
 
     config    <- Conf.load [Conf.Required "config/app.cfg"]
-    
-    Conf.display config
+    origin    <- Conf.require config "broker.origin" :: IO ByteString
 
     master    <- newMVar False
     counts    <- newMVar []
@@ -61,9 +58,11 @@ main = do
     let queue = US.append "eventsource." uuid
     let Just js = fmap (render . (setAttribute "origin" origin)) (getStringTemplate "eshq.js" templates)
 
-    (publisher, listener) <- openEventChannel (show queue)
+    (publisher, listener) <- openEventChannel config (show queue)
 
     bracket (openDB config) (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
+        createCollections config db
+
         forkIO $ connectionSweeper db uuid
         forkIO $ writeToBuffer master db listener counts
         forkIO $ aggregateStats db counts

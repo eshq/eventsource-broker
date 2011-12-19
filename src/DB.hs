@@ -10,6 +10,7 @@ module DB
       withDB,
       openDB,
       closeDB,
+      createCollections,
       genObjectId,
       returnModel,
       run,
@@ -34,24 +35,19 @@ module DB
 import           Prelude hiding (lookup)
 
 import           Control.Exception (bracket)
-import           Control.Monad.Instances
+import           Control.Monad.Instances ()
 
-import           System.Posix.Env(getEnvDefault)
-import           Data.String.Utils(split)
-import           Text.URI(URI(..), parseURI)
-
-import           Data.UString (UString, u)
+import           Data.UString (u)
 import           Data.CompactString (CompactString, Encoding, toByteString)
-import           Data.CompactString.Encodings (UTF8)
-import           Data.Maybe (fromJust)
 import           Data.Aeson
 import           Data.Configurator.Types (Config)
 import qualified Data.Configurator as Conf
 
 import          Database.MongoDB (
-                    Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..), runIOE, connect, auth, access,
+                    Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..),
+                    CollectionOption(..), runIOE, connect, auth, access,
                     readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand, rest,
-                    find, findOne, count, look, lookup, distinct, at, genObjectId
+                    find, findOne, count, look, lookup, distinct, at, genObjectId, createCollection
                  )
 
 -- |A connection to a mongoDB
@@ -63,8 +59,8 @@ instance Encoding a => ToJSON (CompactString a) where
 -- |Opens a connection to the database speficied in the MONGO_URL
 -- environment variable
 openDB :: Config -> IO DB
-openDB conf = do
-    openConn conf
+openDB config = do
+    openConn config
 
 
 -- |Close the connection to the database
@@ -76,6 +72,18 @@ closeDB = closeConn
 withDB :: Config -> (DB -> IO ()) -> IO ()
 withDB config f = do
     bracket (openConn config) closeConn f
+
+
+createCollections :: Config -> DB -> IO ()
+createCollections config db = do
+  statsCap  <- Conf.require config "caps.stats"
+  bufferCap <- Conf.require config "caps.buffer"
+  
+  run db $ createCollection [Capped, MaxByteSize statsCap] "stats_by_10_secs"
+  run db $ createCollection [Capped, MaxByteSize statsCap] "stats_by_1_mins"
+  run db $ createCollection [Capped, MaxByteSize bufferCap] "events"
+  
+  return ()
 
 
 returnModel :: (Document -> a) -> Either Failure (Maybe Document) -> Either Failure (Maybe a)

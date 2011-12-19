@@ -8,6 +8,7 @@ import           DB
 type Aggregates = [(String, Integer, Aggregate)]
 type Aggregate = M.Map String (M.Map Integer Integer)
 
+
 emptyAggregates :: Aggregates
 emptyAggregates = [
     ("10_secs",  10, M.empty),
