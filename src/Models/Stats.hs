@@ -11,10 +11,11 @@ type Aggregate = M.Map String (M.Map Integer Integer)
 
 emptyAggregates :: Aggregates
 emptyAggregates = [
-    ("10_secs",  10, M.empty),
-    ("1_mins",   60, M.empty),
-    ("5_mins",  300, M.empty),
-    ("1_days", 1440, M.empty)
+    ("10_secs",   10, M.empty),
+    ("1_mins",    60, M.empty),
+    ("5_mins",   300, M.empty),
+    ("1_hours", 3600, M.empty),
+    ("1_days", 86400, M.empty)
   ]
 
 aggregateCounts :: DB -> [(Integer, String)] -> IO ()
