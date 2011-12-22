@@ -15,7 +15,6 @@ role :db,  "eshq", :primary => true
 after "deploy:update_code", "deploy:symlink_configuration_files"
 namespace :deploy do
 	task :symlink_configuration_files do
-	    run "rm -r #{release_path}/config/app.cfg"
 	    run "ln -nfs #{shared_path}/config/app.cfg #{release_path}/config/app.cfg"
 	end
 end
