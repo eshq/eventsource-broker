@@ -24,7 +24,7 @@ aggregateCounts db counts = do
         forM_ (M.assocs counts') $ \(interval, value) ->
           run db $ repsert (s scope interval name) (d value)
   where
-    s scope interval name  = select ["s" =: scope, "t" =: interval] (u $ "stats_by_" ++ name)
+    s scope interval name  = select ["s" =: u scope, "t" =: interval] (u $ "stats_by_" ++ name)
     d value = ["$inc" =: ["v" =: value]]
 
 aggregatedCounts :: Aggregates -> [(Integer, String)] -> Aggregates

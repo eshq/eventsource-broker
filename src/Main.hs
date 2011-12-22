@@ -110,7 +110,6 @@ writeToBuffer master db chan counts = forever $ do
     event      <- readChan chan
     isMaster   <- readMVar master
     time       <- fmap floor getPOSIXTime
-    modifyMVar_ counts $ \counts' -> return ((time, show $ amqpUser event) : counts')
     if isMaster
         then do
           let event' = Event.Event {
@@ -121,7 +120,7 @@ writeToBuffer master db chan counts = forever $ do
             Event.eventUser = ufrombs $ amqpUser event
           }          
           Event.store db event'
-          return ()
+          modifyMVar_ counts $ \counts' -> return ((time, BS.unpack $ amqpUser event) : counts')
         else return ()
   where
     toUS = fmap ufrombs
