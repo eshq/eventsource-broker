@@ -64,7 +64,7 @@ main = do
         createCollections config db
 
         forkIO $ connectionSweeper db uuid
-        forkIO $ writeToBuffer master db listener counts
+        forkIO $ writeToBuffer master db listener
         forkIO $ aggregateStats db counts
         forkIO $ setMaster master db uuid
         quickHttpServe $
@@ -80,8 +80,8 @@ main = do
             method GET (route [
                 ("broker", brokerInfo master db uuid),
                 ("channel/:channel/users", channelInfo db),
-                ("eventsource/:transport", eventSource db uuid listener),
-                ("eventsource", eventSource db uuid listener)
+                ("eventsource/:transport", eventSource db uuid listener counts),
+                ("eventsource", eventSource db uuid listener counts)
             ])
 
 
@@ -105,11 +105,10 @@ setMaster master db uuid = forever $ do
             if claimed then swapMVar master True else return False
 
 
-writeToBuffer :: MVar Bool -> DB -> Chan AMQPEvent -> MVar [(Integer, String)] -> IO ()
-writeToBuffer master db chan counts = forever $ do
+writeToBuffer :: MVar Bool -> DB -> Chan AMQPEvent -> IO ()
+writeToBuffer master db chan = forever $ do
     event      <- readChan chan
     isMaster   <- readMVar master
-    time       <- fmap floor getPOSIXTime
     if isMaster
         then do
           let event' = Event.Event {
@@ -120,7 +119,7 @@ writeToBuffer master db chan counts = forever $ do
             Event.eventUser = ufrombs $ amqpUser event
           }          
           Event.store db event'
-          modifyMVar_ counts $ \counts' -> return ((time, BS.unpack $ amqpUser event) : counts')
+          return ()
         else return ()
   where
     toUS = fmap ufrombs
@@ -206,8 +205,8 @@ postEventFromSocket db chan queue =
 
 
 -- |Stream events from a channel of AMQPEvents to EventSource
-eventSource :: DB -> UString -> Chan AMQPEvent -> Snap ()
-eventSource db uuid chan = do
+eventSource :: DB -> UString -> Chan AMQPEvent -> MVar [(Integer, String)] -> Snap ()
+eventSource db uuid chan counts= do
     noCompression
     chan'   <- liftIO $ dupChan chan
     withConnection db $ \conn -> do
@@ -215,7 +214,7 @@ eventSource db uuid chan = do
       transport <- getTransport
       lastId    <- fmap (getHeader "Last-Event-ID") getRequest <|> getParam "last-event-id"
       events    <- liftIO $ buffer conn lastId
-      transport (fmap (map toEvent) events) (filterEvents conn chan') (after conn)
+      transport (fmap (map toEvent) events) (filterEvents conn chan' counts) (after conn)
   where
     buffer conn (Just lastId) = do
         events <- Event.since db (Conn.userId conn) (Conn.channel conn) (ufrombs lastId)
@@ -308,12 +307,15 @@ getTransport = withRequest $ \request -> do
 
 
 -- |Filter AMQPEvents by channelId
-filterEvents :: Conn.Connection -> Chan AMQPEvent -> IO ServerEvent
-filterEvents conn chan = do
+filterEvents :: Conn.Connection -> Chan AMQPEvent -> MVar [(Integer, String)] -> IO ServerEvent
+filterEvents conn chan counts = do
     event <- readChan chan
     if amqpUser event == userId && amqpChannel event == channel
-        then return $ ServerEvent (toB $ amqpName event) (toB $ amqpId event) [fromByteString $ amqpData event]
-        else filterEvents conn chan
+        then do
+          time <- fmap floor getPOSIXTime
+          modifyMVar_ counts $ \counts' -> return ((time, BS.unpack $ amqpUser event) : counts')
+          return $ ServerEvent (toB $ amqpName event) (toB $ amqpId event) [fromByteString $ amqpData event]
+        else filterEvents conn chan counts
   where
     toB     = fmap fromByteString
     userId  = utobs $ Conn.userId conn
