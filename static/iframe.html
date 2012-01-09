@@ -27,7 +27,12 @@ var sendToParent = function(type, channel, e) {
   parent.postMessage(JSON.stringify({
     eshqEvent: type,
     channel: channel,
-    originalEvent: e
+    originalEvent: {
+      data: e.data,
+      lastEventId: e.lastEventId,
+      type: e.type,
+      id: e.id
+    }
   }), "*");
 };
 

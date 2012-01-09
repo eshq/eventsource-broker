@@ -65,7 +65,7 @@
 
     var data = JSON.parse(event.data);
     if (!data.eshqEvent) { return; }
-
+    
     var sub = subs[data.channel];
     if (!sub) { return; }
 
