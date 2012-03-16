@@ -257,9 +257,11 @@ withAuth db handler = do
     (Just key', Just token', Just timestamp') -> do
       currentTime <- liftIO getPOSIXTime
       withDBResult (User.get db (ufrombs key')) (showError 404 "User not found") $ \user ->
-          if validTime timestamp' currentTime && User.authenticate user token' timestamp'
-            then handler user
-            else showError 401 "Access Denied"
+          if validTime timestamp' currentTime
+	    then if User.authenticate user token' timestamp'
+              then handler user
+              else showError 401 "Access Denied - Bad Credentials"
+            else showError 401 (BS.pack $ "Access Denied - Timestamp invalid, timestamp: " ++ (show timestamp') ++ " server time: " ++ (show currentTime))
     _ -> showError 401 "Access Denied - Missing Credentials"
 
 
