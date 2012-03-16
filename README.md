@@ -43,14 +43,9 @@ Clone the repository, cd to the root of it and execute
 
     cabal install
 
-Run as:
+Eventsource Broker depends on MongoDB and RabbitMQ. Make sure everything is configured right in config/app.cfg and then run with:
 
     eventsource-broker -p <port>
-
-The broker will look for an AMQP_URL environment variable for a broker
-to connect to. It also takes a MONGO_URL for configuring the database
-connection and an ORIGIN variable that should be a url the server runs
-on for cross domain requests.
 
 License
 =======
