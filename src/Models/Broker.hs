@@ -2,18 +2,21 @@
 module Models.Broker where
 
 import           Prelude hiding (lookup)
-import           Data.UString (UString)
+import           Data.ByteString (ByteString)
+import           Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as E
 import           Data.Time.Clock
 import           DB
 
 
-renewMaster :: DB -> UString -> IO Bool
+renewMaster :: DB -> Text -> IO Bool
 renewMaster db uuid = do
     time <- getCurrentTime
     result <- run db $ runCommand [
-          "findAndModify" =: u "broker",
+          "findAndModify" =: T.pack "broker",
           "query" =: [
-            "_id" =: u "master",
+            "_id" =: T.pack "master",
             "uuid" =: uuid
           ],
           "update" =: [
@@ -26,13 +29,13 @@ renewMaster db uuid = do
         Left _    -> return False
 
 
-claimMaster :: DB -> UString -> IO Bool
+claimMaster :: DB -> Text -> IO Bool
 claimMaster db uuid = do
     time <- getCurrentTime
     result <- run db $ runCommand [
-          "findAndModify" =: u "broker",
+          "findAndModify" =: T.pack "broker",
           "query" =: [
-            "_id" =: u "master",
+            "_id" =: T.pack "master",
             "t" =: ["$lt" =: addUTCTime (-10) time]
           ],
           "update" =: [

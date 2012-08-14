@@ -183,7 +183,7 @@
       this._listeners[type] = this._listeners[type] || [];
       this._listeners[type].push(fn);
       if (window.postMessage) {
-        this.sub.postMsg("bind");
+        this.sub.postMsg("bind", {event: type});
       }
     },
     send: window.postMessage ? function(data) {

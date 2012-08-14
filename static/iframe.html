@@ -24,6 +24,7 @@ var post = function(path, data, callback) {
 };
 
 var sendToParent = function(type, channel, e) {
+  console.log("Sending to parent %s %o", type, e);
   parent.postMessage(JSON.stringify({
     eshqEvent: type,
     channel: channel,
@@ -68,11 +69,13 @@ setTimeout(function() {
 }, 0);
 
 window.addEventListener("message", function(e) {
+  console.log("Got postMessage %o", e);
   var data = JSON.parse(e.data);
   if (data.action == "send") {
     post("/socket/" + socket, "data=" + encodeURIComponent(data.data));
   } else if (data.action == "bind") {
-    evtSrc.addEventListener(data.event, function(e) {
+    console.log("Binding %s", data.data.event);
+    evtSrc.addEventListener(data.data.event, function(e) {
       sendToParent("message", channel, e);
     }, false)
   }

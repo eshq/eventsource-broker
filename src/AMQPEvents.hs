@@ -2,6 +2,7 @@
 module AMQPEvents
     (
       AMQPEvent(..)
+    , ConnectionStatus(..)
     , Channel
     , openEventChannel
     , publishEvent
@@ -9,6 +10,7 @@ module AMQPEvents
 
 import           Control.Applicative((<$>), (<*>))
 import           Control.Monad(mzero)
+import           Control.Concurrent.MVar(MVar, newMVar, swapMVar)
 import           Control.Concurrent.Chan(Chan, newChan, writeChan)
 
 import           Data.Aeson(FromJSON(..), ToJSON(..), Value(..), Result(..), fromJSON, toJSON, object, json, encode, (.:), (.:?), (.=))
@@ -21,18 +23,22 @@ import qualified Data.Configurator as Conf
 
 import           Network.AMQP
 
--- |Wraps a AMQPChannel to publish on and a listerner chan to read from
-type AMQPConn = (Channel, Chan AMQPEvent)
+-- |Wraps a AMQPChannel to publish on, a listerner chan to read from and an
+-- MVar with the connection status
+type AMQPConn = (Channel, Chan AMQPEvent, MVar ConnectionStatus)
 
 -- |The AMQPEvent represents and incomming message that should be
 -- mapped to an EventSource event.
 data AMQPEvent = AMQPEvent
-    { amqpChannel :: B.ByteString
-    , amqpUser    :: B.ByteString
-    , amqpData    :: B.ByteString
-    , amqpId      :: Maybe B.ByteString
-    , amqpName    :: Maybe B.ByteString 
-    }
+    { amqpChannel  :: B.ByteString
+    , amqpUser     :: B.ByteString
+    , amqpData     :: B.ByteString
+    , amqpId       :: Maybe B.ByteString
+    , amqpName     :: Maybe B.ByteString
+    , amqpSocketId :: Maybe B.ByteString
+    } deriving Show
+
+data ConnectionStatus = Open | Closed
 
 instance FromJSON AMQPEvent where
     parseJSON (Object v) = AMQPEvent <$>
@@ -40,11 +46,12 @@ instance FromJSON AMQPEvent where
                            v .: "user"    <*>
                            v .: "data"    <*>
                            v .:? "id"     <*>
-                           v .:? "name"
+                           v .:? "name"   <*>
+                           v .:? "socket"
     parseJSON _           = mzero
 
 instance ToJSON AMQPEvent where
-    toJSON (AMQPEvent c u d i n) = object ["channel" .= c, "user" .= u, "data" .= d, "id" .= i, "name" .= n]
+    toJSON (AMQPEvent c u d i n s) = object ["channel" .= c, "user" .= u, "data" .= d, "id" .= i, "name" .= n, "socket" .= s]
 
 exchange :: String
 exchange = "eventsource.fanout"
@@ -60,8 +67,12 @@ openEventChannel config queue = do
     user     <- Conf.lookupDefault "guest" config "amqp.user"
     pass     <- Conf.lookupDefault "guest" config "amqp.pass"
 
+    status   <- newMVar Open
+
     conn <- openConnection host vhost user pass
     chan <- openChannel conn
+
+    addConnectionClosedHandler conn True $ swapMVar status Closed >> return ()
 
     declareQueue chan newQueue {queueName = queue, queueAutoDelete = True, queueDurable = False}
     declareExchange chan newExchange {exchangeName = exchange, exchangeType = "fanout", exchangeDurable = False}
@@ -69,7 +80,7 @@ openEventChannel config queue = do
 
     listener <- newChan
     consumeMsgs chan queue NoAck (sendTo listener)
-    return (chan, listener)
+    return (chan, listener, status)
 
 
 publishEvent :: Channel -> String -> AMQPEvent -> IO ()
@@ -80,7 +91,7 @@ publishEvent chan queue event =
 
 -- |Write messages from AMQP to a channel
 sendTo :: Chan AMQPEvent -> (Message, Envelope) -> IO ()
-sendTo chan (msg, _) =
+sendTo chan (msg, _) = do
     case maybeResult $ parse json (B.concat $ LB.toChunks (msgBody msg)) of
         Just value -> case fromJSON value of
             Success event -> do

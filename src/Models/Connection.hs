@@ -5,18 +5,21 @@ import           Prelude hiding (lookup)
 
 import           Data.Time.Clock (UTCTime, getCurrentTime)
 import           Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime)
-import           Data.UString (UString, toByteString)
+import           Data.ByteString (ByteString)
+import           Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as E
 import           Data.Aeson
 
 import           DB
 
 -- |An eventSource connection to the broker persisted in mongoDB
 data Connection = Connection 
-    { socketId     :: UString
-    , brokerId     :: UString
-    , userId       :: UString
-    , channel      :: UString
-    , presenceId   :: Maybe UString
+    { socketId     :: Text
+    , brokerId     :: Text
+    , userId       :: Text
+    , channel      :: Text
+    , presenceId   :: Maybe Text
     , disconnectAt :: Maybe Int -- Seconds from current time
     }
 
@@ -26,8 +29,8 @@ instance ToJSON Connection where
 
 
 data BrokerInfo = BrokerInfo
-                { isMaster :: Maybe Bool
-                , connId :: UString
+                { isMaster  :: Maybe Bool
+                , connId    :: Text
                 , connCount :: Int
                 }
 
@@ -67,19 +70,19 @@ mark db conn = do
 
 -- |Sweep connections. All marked connections with a disconnect_at less
 -- than the current time will be removed.
-sweep :: DB -> UString -> IO (Either Failure ())
+sweep :: DB -> Text -> IO (Either Failure ())
 sweep db bid = do
     time <- getCurrentTime
     run db $ delete (select ["broker" =: bid, "disconnect_at" =: ["$lte" =: time]] "connections")
 
 
 -- |Remove all connections from a broker from the db
-remove :: DB -> UString -> IO (Either Failure ())
+remove :: DB -> Text -> IO (Either Failure ())
 remove db bid = 
     run db $ delete (select ["broker" =: bid] "connections")
 
 
-get :: DB -> UString -> IO (Either Failure (Maybe Connection))
+get :: DB -> Text -> IO (Either Failure (Maybe Connection))
 get db sid = do
     result <- run db $ findOne (select ["_id" =: sid] "connections")
     return $ returnModel constructor result
@@ -96,7 +99,7 @@ constructor doc = Connection {
                 }
 
 
-count :: DB -> UString -> IO (Either Failure BrokerInfo)
+count :: DB -> Text -> IO (Either Failure BrokerInfo)
 count db bid =
     run db $ DB.count (select ["broker" =: bid] "connections") >>= return . BrokerInfo Nothing bid
 

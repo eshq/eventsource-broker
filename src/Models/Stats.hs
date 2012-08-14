@@ -3,6 +3,8 @@ module Models.Stats where
 
 import           Control.Monad
 import qualified Data.HashMap as M
+import           Data.Text (Text)
+import qualified Data.Text as T
 import           DB
 
 type Aggregates = [(String, Integer, Aggregate)]
@@ -25,7 +27,7 @@ aggregateCounts db counts = do
         forM_ (M.assocs counts') $ \(interval, value) ->
           run db $ repsert (s scope interval name) (d value)
   where
-    s scope interval name  = select ["s" =: u scope, "t" =: interval] (u $ "stats_by_" ++ name)
+    s scope interval name  = select ["s" =: T.pack scope, "t" =: interval] (T.pack $ "stats_by_" ++ name)
     d value = ["$inc" =: ["v" =: value]]
 
 aggregatedCounts :: Aggregates -> [(Integer, String)] -> Aggregates

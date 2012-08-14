@@ -17,8 +17,9 @@ import           Snap.Util.GZip (noCompression)
 
 import           Data.ByteString(ByteString)
 import qualified Data.ByteString.Char8 as BS
-import           Data.UString (UString, u)
-import qualified Data.UString as US
+import           Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as E
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Blaze.ByteString.Builder(fromByteString)
 import           Data.Aeson
@@ -26,7 +27,7 @@ import qualified Data.Configurator as Conf
 
 import qualified System.UUID.V4 as UUID
 
-import           AMQPEvents(AMQPEvent(..), Channel, openEventChannel, publishEvent)
+import           AMQPEvents(AMQPEvent(..), ConnectionStatus(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
 import           DB (DB, Failure, openDB, closeDB, createCollections, genObjectId)
@@ -46,7 +47,7 @@ import           Text.StringTemplate
 -- |Setup a channel listening to an AMQP exchange and start Snap
 main :: IO ()
 main = do
-    uuid      <- fmap (u . show) UUID.uuid
+    uuid      <- fmap (T.pack . show) UUID.uuid
     templates <- directoryGroup "templates" :: IO (STGroup ByteString)
 
     config    <- Conf.load [Conf.Required "config/app.cfg"]
@@ -55,10 +56,10 @@ main = do
     master    <- newMVar False
     counts    <- newMVar []
 
-    let queue = US.append "eventsource." uuid
+    let queue = T.append "eventsource." uuid
     let Just js = fmap (render . (setAttribute "origin" origin)) (getStringTemplate "eshq.js" templates)
 
-    (publisher, listener) <- openEventChannel config (show queue)
+    (publisher, listener, amqpStatus) <- openEventChannel config (show queue)
 
     bracket (openDB config) (\db -> Conn.remove db uuid >> closeDB db) $ \db -> do
         createCollections config db
@@ -78,7 +79,7 @@ main = do
                 ("socket/:socket", postEventFromSocket db publisher queue)
             ]) <|>
             method GET (route [
-                ("broker", brokerInfo master db uuid),
+                ("broker", brokerInfo master db uuid amqpStatus),
                 ("channel/:channel/users", channelInfo db),
                 ("eventsource/:transport", eventSource db uuid listener counts),
                 ("eventsource", eventSource db uuid listener counts)
@@ -86,13 +87,13 @@ main = do
 
 
 -- |Clean up disconnected connections for this broker at regular intervals
-connectionSweeper :: DB -> UString -> IO ()
+connectionSweeper :: DB -> Text -> IO ()
 connectionSweeper db uuid = forever $ do
     threadDelay 15000000
     Conn.sweep db uuid
 
 
-setMaster :: MVar Bool -> DB -> UString -> IO ()
+setMaster :: MVar Bool -> DB -> Text -> IO ()
 setMaster master db uuid = forever $ do
     threadDelay 1000000
     isMaster <- readMVar master
@@ -112,17 +113,15 @@ writeToBuffer master db chan = forever $ do
     if isMaster
         then do
           let event' = Event.Event {
-            Event.eventName = toUS $ amqpName event,
-            Event.eventId   = toUS $ amqpId event,
-            Event.eventData = ufrombs $ amqpData event,
-            Event.eventChan = ufrombs $ amqpChannel event,
-            Event.eventUser = ufrombs $ amqpUser event
+            Event.eventName = fmap E.decodeUtf8 $ amqpName event,
+            Event.eventId   = fmap E.decodeUtf8 $ amqpId event,
+            Event.eventData = E.decodeUtf8 $ amqpData event,
+            Event.eventChan = E.decodeUtf8 $ amqpChannel event,
+            Event.eventUser = E.decodeUtf8 $ amqpUser event
           }          
           Event.store db event'
           return ()
         else return ()
-  where
-    toUS = fmap ufrombs
 
 
 aggregateStats :: DB -> MVar [(Integer, String)] -> IO ()
@@ -133,16 +132,20 @@ aggregateStats db counts = forever $ do
     return ()
 
 
-brokerInfo :: MVar Bool -> DB -> UString -> Snap ()
-brokerInfo master db uuid = do
-    result <- liftIO $ Conn.count db uuid
-    case result of
-        Right info -> do
-            isMaster <- liftIO . readMVar $ master
-            sendJSON $ info {Conn.isMaster = Just isMaster}
-        Left e -> do
-            logError (BS.pack $ show e)
-            showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
+brokerInfo :: MVar Bool -> DB -> Text -> MVar ConnectionStatus -> Snap ()
+brokerInfo master db uuid amqpStatus = do
+    status <- liftIO $ readMVar amqpStatus
+    case status of
+      Open -> do
+        result <- liftIO $ Conn.count db uuid
+        case result of
+            Right info -> do
+                isMaster <- liftIO . readMVar $ master
+                sendJSON $ info {Conn.isMaster = Just isMaster}
+            Left e -> do
+                logError (BS.pack $ show e)
+                showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
+      Closed -> showError 500 $ BS.pack $ "Lost Connection to AMQP exchange"
 
 
 channelInfo :: DB -> Snap ()
@@ -158,18 +161,18 @@ channelInfo db = do
 
 
 -- |Create a new socket and return the ID
-createSocket :: DB -> UString -> Snap ()
+createSocket :: DB -> Text -> Snap ()
 createSocket db uuid = do
     withAuth db $ \user -> do
       withParam "channel" $ \channel -> do
         socketId   <- liftIO $ fmap show UUID.uuid
         presenceId <- getParam "presence_id"
         let conn = Conn.Connection {
-              Conn.socketId     = u socketId
+              Conn.socketId     = T.pack socketId
             , Conn.brokerId     = uuid
             , Conn.userId       = User.apiKey user
             , Conn.channel      = channel
-            , Conn.presenceId   = fmap ufrombs presenceId
+            , Conn.presenceId   = fmap E.decodeUtf8 presenceId
             , Conn.disconnectAt = Just 10
         }
         result <- liftIO $ Conn.store db conn
@@ -180,7 +183,7 @@ createSocket db uuid = do
           Right _ -> sendJSON conn
 
 
-postEvent :: DB -> Channel -> UString -> Snap ()
+postEvent :: DB -> Channel -> Text -> Snap ()
 postEvent db chan queue =
     withAuth db $ \user ->
       withParam "channel" $ \channel ->
@@ -188,24 +191,24 @@ postEvent db chan queue =
               name <- getParam "name"
               oid  <- liftIO . fmap (BS.pack . show) $ genObjectId
               liftIO $ publishEvent chan (show queue) $
-                  AMQPEvent (utobs channel) (utobs $ User.apiKey user) (utobs dataParam) (Just oid) name
+                  AMQPEvent (E.encodeUtf8 channel) (E.encodeUtf8 $ User.apiKey user) (E.encodeUtf8 dataParam) (Just oid) name Nothing
               writeBS "Ok"
 
 
 -- |Post a new event from a socket.
-postEventFromSocket :: DB -> Channel -> UString -> Snap ()
+postEventFromSocket :: DB -> Channel -> Text -> Snap ()
 postEventFromSocket db chan queue =
     withConnection db $ \conn ->
         withParam "data" $ \dataParam -> do
             name <- getParam "name"
             oid  <- liftIO . fmap (BS.pack . show) $ genObjectId
             liftIO $ publishEvent chan (show queue) $ 
-                AMQPEvent (utobs $ Conn.channel conn) (utobs $ Conn.userId conn) (utobs dataParam) (Just oid) name
+                AMQPEvent (E.encodeUtf8 $ Conn.channel conn) (E.encodeUtf8 $ Conn.userId conn) (E.encodeUtf8 dataParam) (Just oid) name Nothing
             writeBS "Ok"
 
 
 -- |Stream events from a channel of AMQPEvents to EventSource
-eventSource :: DB -> UString -> Chan AMQPEvent -> MVar [(Integer, String)] -> Snap ()
+eventSource :: DB -> Text -> Chan AMQPEvent -> MVar [(Integer, String)] -> Snap ()
 eventSource db uuid chan counts= do
     noCompression
     chan'   <- liftIO $ dupChan chan
@@ -217,13 +220,13 @@ eventSource db uuid chan counts= do
       transport (fmap (map toEvent) events) (filterEvents conn chan' counts) (after conn)
   where
     buffer conn (Just lastId) = do
-        events <- Event.since db (Conn.userId conn) (Conn.channel conn) (ufrombs lastId)
+        events <- Event.since db (Conn.userId conn) (Conn.channel conn) (E.decodeUtf8 lastId)
         case events of
           Right docs -> return $ Just docs
           Left _ -> return Nothing
     buffer _ Nothing = return Nothing
     toEvent e = ServerEvent (fmap toB $ Event.eventName e) (fmap toB $ Event.eventId e) ([toB $ Event.eventData e])
-    toB  = fromByteString . utobs
+    toB  = fromByteString . E.encodeUtf8
     before conn = Conn.store db conn { Conn.brokerId = uuid } >> return ()
     after conn = Conn.mark db (conn { Conn.disconnectAt = Just 10 } ) >> return ()
 
@@ -234,12 +237,12 @@ serveJS js = do
     writeBS js
 
 
-withParam :: UString -> (UString -> Snap ()) -> Snap ()
+withParam :: Text -> (Text -> Snap ()) -> Snap ()
 withParam param fn = do
-    param' <- getParam (utobs param)
+    param' <- getParam (E.encodeUtf8 param)
     case param' of
-        Just value -> fn (ufrombs value)
-        Nothing    -> showError 400 $ BS.concat ["Missing param: ", utobs param]
+        Just value -> fn (E.decodeUtf8 value)
+        Nothing    -> showError 400 $ BS.concat ["Missing param: ", E.encodeUtf8 param]
 
 
 withConnection :: DB -> (Conn.Connection -> Snap ()) -> Snap ()
@@ -256,9 +259,9 @@ withAuth db handler = do
   case (key, token, timestamp) of
     (Just key', Just token', Just timestamp') -> do
       currentTime <- liftIO getPOSIXTime
-      withDBResult (User.get db (ufrombs key')) (showError 404 "User not found") $ \user ->
+      withDBResult (User.get db (E.decodeUtf8 key')) (showError 404 "User not found") $ \user ->
           if validTime timestamp' currentTime
-	    then if User.authenticate user token' timestamp'
+            then if User.authenticate user token' timestamp'
               then handler user
               else showError 401 "Access Denied - Bad Credentials"
             else showError 401 (BS.pack $ "Access Denied - Timestamp invalid, timestamp: " ++ (show timestamp') ++ " server time: " ++ (show currentTime))
@@ -312,21 +315,14 @@ getTransport = withRequest $ \request -> do
 filterEvents :: Conn.Connection -> Chan AMQPEvent -> MVar [(Integer, String)] -> IO ServerEvent
 filterEvents conn chan counts = do
     event <- readChan chan
-    if amqpUser event == userId && amqpChannel event == channel
+    if amqpUser event == userId && amqpChannel event == channel && amqpSocketId event /= Just socketId
         then do
           time <- fmap floor getPOSIXTime
           modifyMVar_ counts $ \counts' -> return ((time, BS.unpack $ amqpUser event) : counts')
           return $ ServerEvent (toB $ amqpName event) (toB $ amqpId event) [fromByteString $ amqpData event]
         else filterEvents conn chan counts
   where
-    toB     = fmap fromByteString
-    userId  = utobs $ Conn.userId conn
-    channel = utobs $ Conn.channel conn
-
-
-ufrombs :: ByteString -> UString
-ufrombs = US.fromByteString_
-
-
-utobs :: UString -> ByteString
-utobs = US.toByteString
+    toB      = fmap fromByteString
+    userId   = E.encodeUtf8 $ Conn.userId conn
+    channel  = E.encodeUtf8 $ Conn.channel conn
+    socketId = E.encodeUtf8 $ Conn.socketId conn

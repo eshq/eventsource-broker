@@ -28,8 +28,7 @@ module DB
       lookup,
       distinct,
       at,
-      (=:),
-      u
+      (=:)
     ) where
 
 import           Prelude hiding (lookup)
@@ -37,15 +36,15 @@ import           Prelude hiding (lookup)
 import           Control.Exception (bracket)
 import           Control.Monad.Instances ()
 
-import           Data.UString (u)
-import           Data.CompactString (CompactString, Encoding, toByteString)
+import qualified Data.Text as T
 import           Data.Aeson
 import           Data.Configurator.Types (Config)
 import qualified Data.Configurator as Conf
+import           Data.Maybe (isJust, fromJust)
 
 import          Database.MongoDB (
                     Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..),
-                    CollectionOption(..), runIOE, connect, auth, access,
+                    CollectionOption(..), runIOE, connect, host, openReplicaSet, primary, auth, access,
                     readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand, rest,
                     find, findOne, count, look, lookup, distinct, at, genObjectId, createCollection
                  )
@@ -53,8 +52,6 @@ import          Database.MongoDB (
 -- |A connection to a mongoDB
 data DB = DB { mongoPipe :: Pipe, mongoDB :: Database }
 
-instance Encoding a => ToJSON (CompactString a) where
-  toJSON = toJSON . toByteString
 
 -- |Opens a connection to the database speficied in the MONGO_URL
 -- environment variable
@@ -92,24 +89,36 @@ returnModel constructor = fmap (fmap constructor)
 
 openConn :: Config -> IO DB
 openConn config = do
-    user   <- Conf.lookup config "mongodb.user"
-    pass   <- Conf.lookup config "mongodb.pass"
-           
-    host   <- Conf.lookupDefault "127.0.0.1" config "mongodb.host"
-    port   <- Conf.lookupDefault 27017 config "mongodb.port" :: IO Int
-    dbName <- Conf.lookupDefault "eventsourcehq" config "mongodb.database"
+    user    <- Conf.lookup config "mongodb.user"
+    pass    <- Conf.lookup config "mongodb.pass"
+    setName <- Conf.lookup config "mongodb.replSet"
+               
+    hostname <- Conf.lookupDefault "127.0.0.1"          config "mongodb.host"
+    port     <- Conf.lookupDefault 27017                config "mongodb.port" :: IO Int
+    dbName   <- Conf.lookupDefault "webpop-development" config "mongodb.database"
 
-    pipe <- runIOE $ connect (readHostPort (host ++ ":" ++ (show port)))
 
-    let db = DB pipe (u dbName)
+    pipe <- if isJust setName then connectToSet (fromJust setName) hostname else connectToHost hostname port
+
+    let db = DB pipe (T.pack dbName)
 
     authenticate db user pass
 
     return db
 
 
+connectToHost :: String -> Int -> IO Pipe
+connectToHost hostname port = runIOE $ connect (readHostPort (hostname ++ ":" ++ (show port)))
+
+
+connectToSet :: String -> String -> IO Pipe
+connectToSet setName hostname = do
+  set  <- runIOE $ openReplicaSet (T.pack setName, [host hostname])
+  runIOE $ primary set
+
+
 authenticate :: DB -> (Maybe String) -> (Maybe String) -> IO (Either Failure Bool)
-authenticate db (Just user) (Just pass) = run db $ auth (u user) (u pass)
+authenticate db (Just user) (Just pass) = run db $ auth (T.pack user) (T.pack pass)
 authenticate db _ _                     = return (Right True)
 
 
