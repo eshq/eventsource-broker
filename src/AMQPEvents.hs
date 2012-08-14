@@ -12,14 +12,21 @@ import           Control.Applicative((<$>), (<*>))
 import           Control.Monad(mzero)
 import           Control.Concurrent.MVar(MVar, newMVar, swapMVar)
 import           Control.Concurrent.Chan(Chan, newChan, writeChan)
+import           Control.Exception (try)
+
+import           Data.Either (either)
 
 import           Data.Aeson(FromJSON(..), ToJSON(..), Value(..), Result(..), fromJSON, toJSON, object, json, encode, (.:), (.:?), (.=))
 import           Data.Attoparsec(parse, maybeResult)
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as LB
+import qualified Data.Text as T
 import           Data.Configurator.Types (Config)
 import qualified Data.Configurator as Conf
+import qualified Data.Configurator.Types as CT
+
+import           System.Random (randomIO)
 
 import           Network.AMQP
 
@@ -57,20 +64,24 @@ exchange :: String
 exchange = "eventsource.fanout"
 
 -- |Connects to an AMQP broker.
--- Tries to get credentials, host and vhost from the AMQP_URL
--- environment variable
+-- Will try to connect to a random host from the amqp.hosts setting
+-- Will cycly through hosts until a working host if found or all hosts have been tried
 -- Take a configuration and a queue name
 openEventChannel :: Config -> String -> IO AMQPConn
 openEventChannel config queue = do
-    host     <- Conf.lookupDefault "127.0.0.1" config "amqp.host"
-    vhost    <- Conf.lookupDefault "/" config "amqp.vhost"
-    user     <- Conf.lookupDefault "guest" config "amqp.user"
-    pass     <- Conf.lookupDefault "guest" config "amqp.pass"
+    CT.List hosts  <- Conf.lookupDefault (CT.List [CT.String "127.0.0.1"]) config "amqp.hosts"
+    vhost          <- Conf.lookupDefault "/" config "amqp.vhost"
+    user           <- Conf.lookupDefault "guest" config "amqp.user"
+    pass           <- Conf.lookupDefault "guest" config "amqp.pass"
 
-    status   <- newMVar Open
+    let numHosts = length hosts
 
-    conn <- openConnection host vhost user pass
-    chan <- openChannel conn
+    status <- newMVar Open
+    i      <- fmap (flip mod numHosts) randomIO
+
+    -- Its ok here to just blowup if we can't get a connection
+    Just conn <- getConnection vhost user pass (take numHosts . drop i . cycle $ hosts)
+    chan      <- openChannel conn
 
     addConnectionClosedHandler conn True $ swapMVar status Closed >> return ()
 
@@ -81,6 +92,20 @@ openEventChannel config queue = do
     listener <- newChan
     consumeMsgs chan queue NoAck (sendTo listener)
     return (chan, listener, status)
+
+
+getConnection :: String -> String -> String -> [CT.Value] -> IO (Maybe Connection)
+getConnection vhost user pass hosts =
+    go hosts
+  where
+    go [] = return Nothing
+    go (x:xs) =
+      case CT.convert x of
+        Just host -> do
+          res <- try (connect host) :: IO (Either AMQPException Connection)
+          either (\_ -> go xs) (\conn -> return (Just conn)) res
+        _ -> go xs
+    connect host = openConnection (T.unpack host) vhost user pass
 
 
 publishEvent :: Channel -> String -> AMQPEvent -> IO ()

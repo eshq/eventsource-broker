@@ -41,23 +41,15 @@ import qualified Models.Stats as Stats
 
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 
-import           Text.StringTemplate
-
-
 -- |Setup a channel listening to an AMQP exchange and start Snap
 main :: IO ()
 main = do
     uuid      <- fmap (T.pack . show) UUID.uuid
-    templates <- directoryGroup "templates" :: IO (STGroup ByteString)
-
     config    <- Conf.load [Conf.Required "config/app.cfg"]
-    origin    <- Conf.require config "broker.origin" :: IO ByteString
-
     master    <- newMVar False
     counts    <- newMVar []
 
     let queue = T.append "eventsource." uuid
-    let Just js = fmap (render . (setAttribute "origin" origin)) (getStringTemplate "eshq.js" templates)
 
     (publisher, listener, amqpStatus) <- openEventChannel config (show queue)
 
@@ -71,7 +63,8 @@ main = do
         quickHttpServe $
             ifTop (serveFile "static/index.html") <|>
             path "iframe" (serveFile "static/iframe.html") <|>
-            path "es.js" (serveJS js) <|>
+            path "iframe.js" (serveFile "static/iframe.js") <|>
+            path "es.js" (serveFile "static/eshq.js") <|>
             dir "static" (serveDirectory "static") <|>
             method POST (route [ 
                 ("event", postEvent db publisher queue),
@@ -229,12 +222,6 @@ eventSource db uuid chan counts= do
     toB  = fromByteString . E.encodeUtf8
     before conn = Conn.store db conn { Conn.brokerId = uuid } >> return ()
     after conn = Conn.mark db (conn { Conn.disconnectAt = Just 10 } ) >> return ()
-
-
-serveJS :: ByteString -> Snap ()
-serveJS js = do
-    modifyResponse $ setContentType "text/javascript; charset=UTF-8"
-    writeBS js
 
 
 withParam :: Text -> (Text -> Snap ()) -> Snap ()

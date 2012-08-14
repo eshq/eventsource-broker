@@ -1,5 +1,7 @@
-<!doctype html>
+<!DOCTYPE html>
+<html>
 <head><title>EventSource IFrame</title></head>
+<body>
 <script>
 	if (typeof(window.addEventListener) == "undefined") {
 		window.addEventListener = function(name, fn) {
@@ -8,76 +10,6 @@
 	}
 </script>
 <script src="/static/eventsource.polyfill.js"></script>
-<script>
-var channel = document.location.search.match(/channel=([^&]+)/)[1];
-var socket  = document.location.search.match(/socket=([^&]+)/)[1];
-var lastId  = document.location.search.match(/last-event-id=[^&]+/);
-
-var post = function(path, data, callback) {
-	var xhr = new XMLHttpRequest();
-	xhr.open('POST', path, true);
-	xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-  if (callback) {
-  	xhr.onreadystatechange = callback;
-  }
-	xhr.send(data);
-};
-
-var sendToParent = function(type, channel, e) {
-  console.log("Sending to parent %s %o", type, e);
-  parent.postMessage(JSON.stringify({
-    eshqEvent: type,
-    channel: channel,
-    originalEvent: {
-      data: e.data,
-      lastEventId: e.lastEventId,
-      type: e.type,
-      id: e.id
-    }
-  }), "*");
-};
-
-var evtSrc;
-
-// Wrap in a timeout to avoid loading spinner in chrome
-setTimeout(function() {
-  var src = "/eventsource?socket=" + socket;
-  if (lastId) src += "&" + lastId;
-
-  // on success
-  evtSrc  = new EventSource(src);
-
-  if (evtSrc.readyState > 0) {
-    sendToParent("open", channel, {});
-  } else {
-    evtSrc.onopen = function(e) {
-      sendToParent("open", channel, e);
-    };
-  }
-
-  evtSrc.onerror = function(e) {
-    sendToParent("error", channel, e);
-  };
-
-  evtSrc.onmessage = function(e) {
-    sendToParent("message", channel, e);
-  };
-
-  evtSrc.addEventListener("ping", function(e) {
-    sendToParent("ping", channel, {});
-  }, false);
-}, 0);
-
-window.addEventListener("message", function(e) {
-  console.log("Got postMessage %o", e);
-  var data = JSON.parse(e.data);
-  if (data.action == "send") {
-    post("/socket/" + socket, "data=" + encodeURIComponent(data.data));
-  } else if (data.action == "bind") {
-    console.log("Binding %s", data.data.event);
-    evtSrc.addEventListener(data.data.event, function(e) {
-      sendToParent("message", channel, e);
-    }, false)
-  }
-}, false);
-</script>
+<script src="/iframe.js"></script>
+</body>
+</html>
