@@ -30,7 +30,7 @@ import qualified System.UUID.V4 as UUID
 import           AMQPEvents(AMQPEvent(..), ConnectionStatus(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
-import           DB (DB, Failure, openDB, closeDB, createCollections, genObjectId)
+import           DB (DB, DBStatus(..), Failure, openDB, closeDB, dbStatus, createCollections, genObjectId)
 
 import qualified Models.Connection as Conn
 import qualified Models.Channel as Channel
@@ -66,6 +66,7 @@ main = do
             path "iframe.js" (serveFile "static/iframe.js") <|>
             path "es.js" (serveFile "static/eshq.js") <|>
             dir "static" (serveDirectory "static") <|>
+            method HEAD (route [("status", status db amqpStatus)]) <|>
             method POST (route [ 
                 ("event", postEvent db publisher queue),
                 ("socket", createSocket db uuid),
@@ -139,6 +140,16 @@ brokerInfo master db uuid amqpStatus = do
                 logError (BS.pack $ show e)
                 showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
       Closed -> showError 500 $ BS.pack $ "Lost Connection to AMQP exchange"
+
+
+status ::  DB -> MVar ConnectionStatus -> Snap ()
+status db amqpStatus = do
+  status <- liftIO $ readMVar amqpStatus
+  case status of
+    Open -> do
+      status' <- liftIO $ dbStatus db
+      if status' == DBOpen then writeBS "OK" else showError 500 $ BS.pack $ "Database Connection Closed"
+    Closed -> showError 500 $ BS.pack $ "Lost Connection to AMQP exchange"
 
 
 channelInfo :: DB -> Snap ()

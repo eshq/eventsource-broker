@@ -2,6 +2,7 @@
 module DB 
     (
       DB,
+      DBStatus(..),
       Document,
       Cursor,
       Query (..),
@@ -10,6 +11,7 @@ module DB
       withDB,
       openDB,
       closeDB,
+      dbStatus,
       createCollections,
       genObjectId,
       returnModel,
@@ -46,11 +48,12 @@ import          Database.MongoDB (
                     Action, Pipe, Database, Document, Query (..), Cursor, ObjectId, Failure, AccessMode(..),
                     CollectionOption(..), runIOE, connect, host, openReplicaSet, primary, auth, access,
                     readHostPort, close, insert, repsert, modify, delete, (=:), select, runCommand, rest,
-                    find, findOne, count, look, lookup, distinct, at, genObjectId, createCollection
+                    find, findOne, count, look, lookup, distinct, at, genObjectId, createCollection, isClosed
                  )
 
 -- |A connection to a mongoDB
 data DB = DB { mongoPipe :: Pipe, mongoDB :: Database }
+data DBStatus = DBOpen | DBClosed deriving Eq
 
 
 -- |Opens a connection to the database speficied in the MONGO_URL
@@ -69,6 +72,10 @@ closeDB = closeConn
 withDB :: Config -> (DB -> IO ()) -> IO ()
 withDB config f = do
     bracket (openConn config) closeConn f
+
+
+dbStatus :: DB -> IO DBStatus
+dbStatus db = isClosed (mongoPipe db) >>= \s -> return $ if s then DBClosed else DBOpen
 
 
 createCollections :: Config -> DB -> IO ()
