@@ -126,7 +126,7 @@ class ESHQ
     channels[@channel].bind(type, cb)
 
 
-onMessage = (e) ->
+onMessage = (event) ->
   return unless event.origin == origin
 
   data = JSON.parse(event.data)
@@ -136,6 +136,7 @@ onMessage = (e) ->
   return unless channel
 
   channel.receive(data)
+
 
 if window.postMessage
   window.addEventListener "message", onMessage, false

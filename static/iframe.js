@@ -30,7 +30,6 @@
       case "send":
         return ajaxPost("/socket/" + socket, "data=" + (encodeURIComponent(data.data)));
       case "bind":
-        console.log("Binding event of type %s", data.data.type);
         return evtSrc.addEventListener(data.data.type, (function(e) {
           return sendToParent("message", channel, e);
         }), false);

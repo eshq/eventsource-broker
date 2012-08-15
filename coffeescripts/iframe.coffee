@@ -20,7 +20,6 @@ onMessage = (e) ->
     when "send"
       ajaxPost("/socket/#{socket}", "data=#{encodeURIComponent(data.data)}")
     when "bind"
-      console.log("Binding event of type %s", data.data.type)
       evtSrc.addEventListener(data.data.type, ((e)  ->
         sendToParent("message", channel, e)
       ), false)

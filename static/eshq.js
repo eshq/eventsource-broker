@@ -229,7 +229,7 @@
 
   })();
 
-  onMessage = function(e) {
+  onMessage = function(event) {
     var channel, data;
     if (event.origin !== origin) {
       return;
