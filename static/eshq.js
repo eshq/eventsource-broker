@@ -29,7 +29,6 @@
   };
 
   Channel = (function() {
-    var openScriptTransport;
 
     function Channel(es) {
       var _this = this;
@@ -190,7 +189,7 @@
       }), "*");
     };
 
-    openScriptTransport = function(iframe, socket) {
+    Channel.prototype.openScriptTransport = function(iframe, socket) {
       var head, o, script, src;
       head = iframe.getElementsByTagName("head")[0];
       o = iframe.getElementsByTagName("script")[0];

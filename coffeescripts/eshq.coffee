@@ -102,7 +102,7 @@ class Channel
       data: data
     ), "*")
 
-  openScriptTransport = (iframe, socket) ->
+  openScriptTransport: (iframe, socket) ->
     head = iframe.getElementsByTagName("head")[0]
     o    = iframe.getElementsByTagName("script")[0]
     o.parentNode.removeChild(o) if o
