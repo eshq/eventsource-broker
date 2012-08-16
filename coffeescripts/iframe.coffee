@@ -14,6 +14,14 @@ sendToParent = (type, channel, e) ->
       id: e.id
   ), "*")
 
+  
+ajaxPost = (path, data, callback) ->
+  xhr = new XMLHttpRequest()
+  xhr.open('POST', path, true)
+  xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded')
+  xhr.onreadystatechange = callback
+  xhr.send(data)
+
 onMessage = (e) ->
   data = JSON.parse(e.data);
   switch(data.action)

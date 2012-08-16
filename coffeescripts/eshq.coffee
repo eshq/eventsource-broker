@@ -115,7 +115,7 @@ class Channel
 class ESHQ
   constructor: (channel, options) ->
     @channel = channel
-    @options = options
+    @options = options || {}
     new Channel(this)
 
   onopen: null
@@ -124,6 +124,29 @@ class ESHQ
 
   addEventListener: (type, cb) ->
     channels[@channel].bind(type, cb)
+  
+  send: (msg) ->
+    console && console.log && console.log("eshq.send has been deprecated.")
+
+    if window.postMessage
+      channels[@channel].sendToFrame("send", msg)
+    else
+      iframe = document.createElement("iframe")
+      uniqueString = "eshq" + new Date().getTime().toString()
+      document.body.appendChild(iframe)
+      iframe.style.display = "none";
+      iframe.contentWindow.name = uniqueString
+      form = document.createElement("form")
+      form.target = uniqueString
+      form.action = origin + "/socket/" + this.sub.socket
+      form.method = "POST"
+      input = document.createElement("input")
+      input.type = "hidden"
+      input.name = "data"
+      input.value = data
+      form.appendChild(input)
+      document.body.appendChild(form)
+      form.submit()
 
 
 onMessage = (event) ->
