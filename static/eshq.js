@@ -202,7 +202,7 @@
         scr += "&last-event-id=" + this.lastId;
       }
       script.setAttribute("src", src);
-      return head.appendChild(s);
+      return head.appendChild(script);
     };
 
     return Channel;

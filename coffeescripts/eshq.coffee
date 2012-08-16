@@ -111,7 +111,7 @@ class Channel
     src  = "#{origin}/eventsource/script.js?socket=#{socket}&t=#{new Date().getTime()}"
     scr += "&last-event-id=#{@lastId}" if @lastId
     script.setAttribute("src", src)
-    head.appendChild(s)
+    head.appendChild(script)
 
 
 class ESHQ
