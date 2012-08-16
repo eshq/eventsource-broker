@@ -6,6 +6,8 @@ channels   = {}
 unless window.addEventListener?
   window.addEventListener = (name, fn) -> window.attachEvent("on" + name, fn)
 
+# Object.keys polyfill - https://gist.github.com/1034464
+`Object.keys=Object.keys||function(o,k,r){r=[];for(k in o)r.hasOwnProperty.call(o,k)&&r.push(k);return r}`
 
 ajaxPost = (path, data, callback) ->
   xhr = new XMLHttpRequest()
