@@ -9,12 +9,10 @@ module AMQPEvents
     ) where
 
 import           Control.Applicative((<$>), (<*>))
-import           Control.Monad(mzero)
+import           Control.Monad(mzero, void)
 import           Control.Concurrent.MVar(MVar, newMVar, swapMVar)
 import           Control.Concurrent.Chan(Chan, newChan, writeChan)
 import           Control.Exception (try)
-
-import           Data.Either (either)
 
 import           Data.Aeson(FromJSON(..), ToJSON(..), Value(..), Result(..), fromJSON, toJSON, object, json, encode, (.:), (.:?), (.=))
 import           Data.Attoparsec(parse, maybeResult)
@@ -77,13 +75,13 @@ openEventChannel config queue = do
     let numHosts = length hosts
 
     status <- newMVar Open
-    i      <- fmap (flip mod numHosts) randomIO
+    i      <- fmap (`mod` numHosts) randomIO
 
     -- Its ok here to just blowup if we can't get a connection
     Just conn <- getConnection vhost user pass (take numHosts . drop i . cycle $ hosts)
     chan      <- openChannel conn
 
-    addConnectionClosedHandler conn True $ swapMVar status Closed >> return ()
+    addConnectionClosedHandler conn True $ void (swapMVar status Closed)
 
     declareQueue chan newQueue {queueName = queue, queueAutoDelete = True, queueDurable = False}
     declareExchange chan newExchange {exchangeName = exchange, exchangeType = "fanout", exchangeDurable = False}
@@ -95,15 +93,14 @@ openEventChannel config queue = do
 
 
 getConnection :: String -> String -> String -> [CT.Value] -> IO (Maybe Connection)
-getConnection vhost user pass hosts =
-    go hosts
+getConnection vhost user pass = go
   where
     go [] = return Nothing
     go (x:xs) =
       case CT.convert x of
         Just host -> do
           res <- try (connect host) :: IO (Either AMQPException Connection)
-          either (\_ -> go xs) (\conn -> return (Just conn)) res
+          either (\_ -> go xs) (return . Just) res
         _ -> go xs
     connect host = openConnection (T.unpack host) vhost user pass
 
@@ -116,11 +113,11 @@ publishEvent chan queue event =
 
 -- |Write messages from AMQP to a channel
 sendTo :: Chan AMQPEvent -> (Message, Envelope) -> IO ()
-sendTo chan (msg, _) = do
+sendTo chan (msg, _) =
     case maybeResult $ parse json (B.concat $ LB.toChunks (msgBody msg)) of
         Just value -> case fromJSON value of
-            Success event -> do
+            Success event ->
                 writeChan chan event
-            Error _       -> do
+            Error _       ->
                 return ()
         Nothing    -> return ()

@@ -2,11 +2,10 @@
 module Models.Broker where
 
 import           Prelude hiding (lookup)
-import           Data.ByteString (ByteString)
 import           Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as E
 import           Data.Time.Clock
+import           Data.Maybe (isJust)
 import           DB
 
 
@@ -25,7 +24,7 @@ renewMaster db uuid = do
           "upsert" =: True
         ]
     case result of
-        Right doc -> return (look "value" doc /= Nothing)
+        Right doc -> return (isJust (look "value" doc))
         Left _    -> return False
 
 
@@ -44,5 +43,5 @@ claimMaster db uuid = do
           "upsert" =: True
         ]
     case result of
-        Right doc -> return (look "value" doc /= Nothing)
+        Right doc -> return (isJust (look "value" doc))
         Left _    -> return False

@@ -3,12 +3,11 @@ module Models.Connection where
 
 import           Prelude hiding (lookup)
 
+import           Control.Monad (liftM)
+
 import           Data.Time.Clock (UTCTime, getCurrentTime)
 import           Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime)
-import           Data.ByteString (ByteString)
 import           Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as E
 import           Data.Aeson
 
 import           DB
@@ -35,7 +34,7 @@ data BrokerInfo = BrokerInfo
                 }
 
 instance ToJSON BrokerInfo where
-    toJSON (BrokerInfo master uuid count) = object ["broker_id" .= uuid, "connections" .= count, "master" .= master]
+    toJSON (BrokerInfo master uuid cons) = object ["broker_id" .= uuid, "connections" .= cons, "master" .= master]
 
 
 -- |Store a "connection" to the broker in the database
@@ -57,14 +56,14 @@ store db conn = do
 -- |Mark a connection. Marked connections will be removed by a later
 -- sweep
 mark :: DB -> Connection -> IO (Either Failure ())
-mark db conn = do
+mark db conn =
     case disconnectAt conn of
         Just offset -> do
             time <- disconnectTime (Just offset)
             run db $ modify (select s "connections") (m time)
         Nothing -> return $ Right ()
   where
-    s = ["_id" =: (socketId conn), "user_id" =: userId conn]
+    s = ["_id" =: socketId conn, "user_id" =: userId conn]
     m time = ["$set" =: ["disconnect_at" =: time]]
 
 
@@ -101,9 +100,9 @@ constructor doc = Connection {
 
 count :: DB -> Text -> IO (Either Failure BrokerInfo)
 count db bid =
-    run db $ DB.count (select ["broker" =: bid] "connections") >>= return . BrokerInfo Nothing bid
+    run db $ liftM (BrokerInfo Nothing bid) $ DB.count (select ["broker" =: bid] "connections")
 
 
 disconnectTime :: Maybe Int -> IO (Maybe UTCTime)
-disconnectTime (Just offset) = fmap (Just . posixSecondsToUTCTime . (+ (fromIntegral offset))) getPOSIXTime 
+disconnectTime (Just offset) = fmap (Just . posixSecondsToUTCTime . (+ fromIntegral offset)) getPOSIXTime 
 disconnectTime Nothing       = return Nothing

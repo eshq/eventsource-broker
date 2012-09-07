@@ -2,7 +2,7 @@
 module Main where
 
 import           Control.Applicative ((<|>))
-import           Control.Monad (forever)
+import           Control.Monad (forever, when, void)
 import           Control.Monad.Trans (liftIO)
 import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, modifyMVar_)
 
@@ -20,7 +20,7 @@ import qualified Data.ByteString.Char8 as BS
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
-import           Data.Time.Clock.POSIX (POSIXTime)
+import           Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import           Blaze.ByteString.Builder(fromByteString)
 import           Data.Aeson
 import qualified Data.Configurator as Conf
@@ -38,8 +38,6 @@ import qualified Models.User as User
 import qualified Models.Event as Event
 import qualified Models.Broker as Broker
 import qualified Models.Stats as Stats
-
-import           Data.Time.Clock.POSIX (getPOSIXTime)
 
 -- |Setup a channel listening to an AMQP exchange and start Snap
 main :: IO ()
@@ -104,19 +102,16 @@ writeToBuffer :: MVar Bool -> DB -> Chan AMQPEvent -> IO ()
 writeToBuffer master db chan = forever $ do
     event      <- readChan chan
     isMaster   <- readMVar master
-    if isMaster
-        then do
-          let event' = Event.Event {
-            Event.eventName = fmap E.decodeUtf8 $ amqpName event,
-            Event.eventId   = fmap E.decodeUtf8 $ amqpId event,
-            Event.eventData = E.decodeUtf8 $ amqpData event,
-            Event.eventChan = E.decodeUtf8 $ amqpChannel event,
-            Event.eventUser = E.decodeUtf8 $ amqpUser event
-          }          
-          Event.store db event'
-          return ()
-        else return ()
-
+    when isMaster $ do
+      let event' = Event.Event {
+        Event.eventName = fmap E.decodeUtf8 $ amqpName event,
+        Event.eventId   = fmap E.decodeUtf8 $ amqpId event,
+        Event.eventData = E.decodeUtf8 $ amqpData event,
+        Event.eventChan = E.decodeUtf8 $ amqpChannel event,
+        Event.eventUser = E.decodeUtf8 $ amqpUser event
+      }
+      Event.store db event'
+      return ()
 
 aggregateStats :: DB -> MVar [(Integer, String)] -> IO ()
 aggregateStats db counts = forever $ do
@@ -138,8 +133,8 @@ brokerInfo master db uuid amqpStatus = do
                 sendJSON $ info {Conn.isMaster = Just isMaster}
             Left e -> do
                 logError (BS.pack $ show e)
-                showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
-      Closed -> showError 500 $ BS.pack $ "Lost Connection to AMQP exchange"
+                showError 500 $ BS.pack $ "Database Connection Problem: " ++ show e
+      Closed -> showError 500 $ BS.pack "Lost Connection to AMQP exchange"
 
 
 status ::  DB -> MVar ConnectionStatus -> Snap ()
@@ -148,26 +143,26 @@ status db amqpStatus = do
   case status of
     Open -> do
       status' <- liftIO $ dbStatus db
-      if status' == DBOpen then writeBS "OK" else showError 500 $ BS.pack $ "Database Connection Closed"
-    Closed -> showError 500 $ BS.pack $ "Lost Connection to AMQP exchange"
+      if status' == DBOpen then writeBS "OK" else showError 500 $ BS.pack "Database Connection Closed"
+    Closed -> showError 500 $ BS.pack "Lost Connection to AMQP exchange"
 
 
 channelInfo :: DB -> Snap ()
-channelInfo db = do
-    withAuth db $ \user -> do
+channelInfo db =
+    withAuth db $ \user ->
       withParam "channel" $ \channel -> do
         result <- liftIO $ Channel.presence db user channel
         case result of
             Right presenceIds -> sendJSON presenceIds
             Left e -> do
                 logError (BS.pack $ show e)
-                showError 500 $ BS.pack $ "Database Connection Problem: " ++ (show e)
+                showError 500 $ BS.pack $ "Database Connection Problem: " ++ show e
 
 
 -- |Create a new socket and return the ID
 createSocket :: DB -> Text -> Snap ()
-createSocket db uuid = do
-    withAuth db $ \user -> do
+createSocket db uuid =
+    withAuth db $ \user ->
       withParam "channel" $ \channel -> do
         socketId   <- liftIO $ fmap show UUID.uuid
         presenceId <- getParam "presence_id"
@@ -229,10 +224,10 @@ eventSource db uuid chan counts= do
           Right docs -> return $ Just docs
           Left _ -> return Nothing
     buffer _ Nothing = return Nothing
-    toEvent e = ServerEvent (fmap toB $ Event.eventName e) (fmap toB $ Event.eventId e) ([toB $ Event.eventData e])
+    toEvent e = ServerEvent (fmap toB $ Event.eventName e) (fmap toB $ Event.eventId e) [toB $ Event.eventData e]
     toB  = fromByteString . E.encodeUtf8
-    before conn = Conn.store db conn { Conn.brokerId = uuid } >> return ()
-    after conn = Conn.mark db (conn { Conn.disconnectAt = Just 10 } ) >> return ()
+    before conn = void (Conn.store db conn { Conn.brokerId = uuid })
+    after conn  = void (Conn.mark db (conn { Conn.disconnectAt = Just 10 } ))
 
 
 withParam :: Text -> (Text -> Snap ()) -> Snap ()
@@ -244,8 +239,8 @@ withParam param fn = do
 
 
 withConnection :: DB -> (Conn.Connection -> Snap ()) -> Snap ()
-withConnection db fn = do
-    withParam "socket" $ \sid -> do
+withConnection db fn =
+    withParam "socket" $ \sid ->
         withDBResult (Conn.get db sid) (showError 404 "Socket Not Found") fn
 
 
@@ -262,7 +257,7 @@ withAuth db handler = do
             then if User.authenticate user token' timestamp'
               then handler user
               else showError 401 "Access Denied - Bad Credentials"
-            else showError 401 (BS.pack $ "Access Denied - Timestamp invalid, timestamp: " ++ (show timestamp') ++ " server time: " ++ (show currentTime))
+            else showError 401 (BS.pack $ "Access Denied - Timestamp invalid, timestamp: " ++ show timestamp' ++ " server time: " ++ show currentTime)
     _ -> showError 401 "Access Denied - Missing Credentials"
 
 

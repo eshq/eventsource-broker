@@ -3,7 +3,6 @@ module Models.Stats where
 
 import           Control.Monad
 import qualified Data.HashMap as M
-import           Data.Text (Text)
 import qualified Data.Text as T
 import           DB
 
@@ -21,7 +20,7 @@ emptyAggregates = [
   ]
 
 aggregateCounts :: DB -> [(Integer, String)] -> IO ()
-aggregateCounts db counts = do
+aggregateCounts db counts =
     forM_ (aggregatedCounts emptyAggregates counts) $ \(name, _, hmap) ->
       forM_ (M.assocs hmap) $ \(scope, counts') ->
         forM_ (M.assocs counts') $ \(interval, value) ->

@@ -39,7 +39,6 @@ import           Control.Exception (bracket)
 import           Control.Monad.Instances ()
 
 import qualified Data.Text as T
-import           Data.Aeson
 import           Data.Configurator.Types (Config)
 import qualified Data.Configurator as Conf
 import           Data.Maybe (isJust, fromJust)
@@ -59,8 +58,7 @@ data DBStatus = DBOpen | DBClosed deriving Eq
 -- |Opens a connection to the database speficied in the MONGO_URL
 -- environment variable
 openDB :: Config -> IO DB
-openDB config = do
-    openConn config
+openDB = openConn
 
 
 -- |Close the connection to the database
@@ -70,8 +68,7 @@ closeDB = closeConn
 
 -- |Bracket around opening and closing the DB connection
 withDB :: Config -> (DB -> IO ()) -> IO ()
-withDB config f = do
-    bracket (openConn config) closeConn f
+withDB config = bracket (openConn config) closeConn
 
 
 dbStatus :: DB -> IO DBStatus
@@ -115,7 +112,7 @@ openConn config = do
 
 
 connectToHost :: String -> Int -> IO Pipe
-connectToHost hostname port = runIOE $ connect (readHostPort (hostname ++ ":" ++ (show port)))
+connectToHost hostname port = runIOE $ connect (readHostPort (hostname ++ ":" ++ show port))
 
 
 connectToSet :: String -> String -> IO Pipe
@@ -124,14 +121,13 @@ connectToSet setName hostname = do
   runIOE $ primary set
 
 
-authenticate :: DB -> (Maybe String) -> (Maybe String) -> IO (Either Failure Bool)
+authenticate :: DB -> Maybe String -> Maybe String -> IO (Either Failure Bool)
 authenticate db (Just user) (Just pass) = run db $ auth (T.pack user) (T.pack pass)
-authenticate db _ _                     = return (Right True)
+authenticate _ _ _                      = return (Right True)
 
 
 run :: DB -> Action IO a -> IO (Either Failure a)
-run (DB pipe db) action = 
-    access pipe UnconfirmedWrites db action
+run (DB pipe db) = access pipe UnconfirmedWrites db
 
 
 closeConn :: DB -> IO ()

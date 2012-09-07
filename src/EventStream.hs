@@ -50,14 +50,13 @@ module EventStream (
 import Blaze.ByteString.Builder
 import Blaze.ByteString.Builder.Char8
 import Control.Monad.Trans
-import Control.Concurrent
 import Control.Exception (onException)
 import Data.Monoid
-import Data.Maybe (fromJust, catMaybes)
+import Data.Maybe (fromJust, mapMaybe)
 import Data.Aeson
 import Data.Enumerator (Step(..), Stream(..), (>>==), returnI)
 -- import Data.Enumerator.List (generateM)
-import Snap.Types
+import Snap.Core
 import System.Timeout
 
 {-|
@@ -81,7 +80,7 @@ data ServerEvent
 
 
 eventType :: ServerEvent -> String
-eventType (ServerEvent _ _ _) = "message"
+eventType (ServerEvent{})     = "message"
 eventType (CommentEvent _)    = "comment"
 eventType (RetryEvent _)      = "retry"
 eventType (CloseEvent)        = "close"
@@ -101,36 +100,46 @@ instance ToJSON Builder where
 {-|
     Newline as a Builder.
 -}
+nl :: Builder
 nl = fromChar '\n'
 
 
 {-|
     Field names as Builder
 -}
+nameField :: Builder
 nameField = fromString "event:"
+idField :: Builder
 idField = fromString "id:"
+dataField :: Builder
 dataField = fromString "data:"
+retryField :: Builder
 retryField = fromString "retry:"
+commentField :: Builder
 commentField = fromChar ':'
 
 
 {-|
     Wraps the text as a labeled field of an event stream.
 -}
+field :: Builder -> Builder -> Builder
 field l b = l `mappend` b `mappend` nl
 
 
 {-|
     Appends a buffer flush to the end of a Builder.
 -}
+flushAfter :: Builder -> Builder
 flushAfter b = b `mappend` flush
 
 {-|
     Send a comment with the string "ping" to the client.
 -}
+pingEvent :: ServerEvent
 pingEvent = ServerEvent (Just $ fromString "ping") Nothing [fromString "{}"]
 
 
+iframeHead :: [Builder]
 iframeHead = [
     fromString "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">",
     fromString "<script>",
@@ -152,12 +161,12 @@ eventSourceBuilder (CommentEvent txt) = Just $ flushAfter $ field commentField t
 eventSourceBuilder (RetryEvent   n)   = Just $ flushAfter $ field retryField (fromShow n)
 eventSourceBuilder (CloseEvent)       = Nothing
 eventSourceBuilder (ServerEvent n i d)= Just $ flushAfter $
-    (name n $ evid i $ mconcat (map (field dataField) d)) `mappend` nl
+    name n (evid i $ mconcat (map (field dataField) d)) `mappend` nl
   where
     name Nothing  = id
-    name (Just n) = mappend (field nameField n)
+    name (Just n') = mappend (field nameField n')
     evid Nothing  = id
-    evid (Just i) = mappend (field idField   i)
+    evid (Just i') = mappend (field idField   i')
 
 
 eventToScript :: ServerEvent -> Builder
@@ -175,14 +184,14 @@ scriptTagBuilder e = Just $ flushAfter $
 
 
 bufferToBuilder :: Maybe [ServerEvent] -> (ServerEvent -> Maybe Builder) -> [Builder]
-bufferToBuilder (Just buffer) builder = catMaybes $ map builder buffer
+bufferToBuilder (Just buffer) builder = mapMaybe builder buffer
 bufferToBuilder Nothing _ = []
 
 
 eventSourceEnum header source builder timeoutAction finalizer = prepend header
   where
     prepend [] (Continue k) = go (Continue k)
-    prepend x (Continue k) = do
+    prepend x (Continue k) =
       k (Chunks (x ++ [flush])) >>== go
     prepend _  step = do
         liftIO finalizer
@@ -224,8 +233,7 @@ eventResponse [] source builder finalizer = do
         liftIO finalizer
         response <- getResponse
         finishWith response
-eventResponse buffer _ _ finalizer = do
-    mapM_ writeBuilder buffer
+eventResponse buffer _ _ _ = mapM_ writeBuilder buffer
 
 
 {-|
@@ -236,7 +244,7 @@ eventSourceStream :: Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ()
 eventSourceStream buffer source finalizer = do
     modifyResponse $ setContentType "text/event-stream"
                    . setHeader "Cache-Control" "no-cache"
-    eventStream (catMaybes $ map eventSourceBuilder $ bufferEvents buffer) source eventSourceBuilder finalizer
+    eventStream (mapMaybe eventSourceBuilder $ bufferEvents buffer) source eventSourceBuilder finalizer
   where
     bufferEvents (Just []) = [pingEvent]
     bufferEvents (Just es) = es
@@ -258,9 +266,8 @@ eventSourceIframe buffer source finalizer = do
     eventStream header source scriptTagBuilder finalizer
   where
     header = iframeHead ++
-            [fromString . take 4000 . repeat $ ' '] ++
-            (bufferToBuilder buffer scriptTagBuilder) ++
-            [flush]
+            [fromString . replicate 4000 $ ' '] ++
+            bufferToBuilder buffer scriptTagBuilder ++ [flush]
 
 
 eventSourceScript :: Maybe [ServerEvent] -> IO ServerEvent -> IO () -> Snap ()

@@ -4,7 +4,6 @@ module Models.User where
 import           Prelude hiding (lookup)
 import           Data.ByteString (ByteString)
 import           Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
