@@ -123,8 +123,8 @@ aggregateStats db counts = forever $ do
 
 brokerInfo :: MVar Bool -> DB -> Text -> MVar ConnectionStatus -> Snap ()
 brokerInfo master db uuid amqpStatus = do
-    status <- liftIO $ readMVar amqpStatus
-    case status of
+    rabbitStatus <- liftIO $ readMVar amqpStatus
+    case rabbitStatus of
       Open -> do
         result <- liftIO $ Conn.count db uuid
         case result of
@@ -139,8 +139,8 @@ brokerInfo master db uuid amqpStatus = do
 
 status ::  DB -> MVar ConnectionStatus -> Snap ()
 status db amqpStatus = do
-  status <- liftIO $ readMVar amqpStatus
-  case status of
+  rabbitStatus <- liftIO $ readMVar amqpStatus
+  case rabbitStatus of
     Open -> do
       status' <- liftIO $ dbStatus db
       if status' == DBOpen then writeBS "OK" else showError 500 $ BS.pack "Database Connection Closed"
@@ -191,7 +191,7 @@ postEvent db chan queue =
               oid  <- liftIO . fmap (BS.pack . show) $ genObjectId
               liftIO $ publishEvent chan (show queue) $
                   AMQPEvent (E.encodeUtf8 channel) (E.encodeUtf8 $ User.apiKey user) (E.encodeUtf8 dataParam) (Just oid) name Nothing
-              writeBS "Ok"
+              writeBS "{}"
 
 
 -- |Post a new event from a socket.
