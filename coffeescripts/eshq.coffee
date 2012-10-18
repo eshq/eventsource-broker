@@ -9,10 +9,11 @@ unless window.addEventListener?
 # Object.keys polyfill - https://gist.github.com/1034464
 `Object.keys=Object.keys||function(o,k,r){r=[];for(k in o)r.hasOwnProperty.call(o,k)&&r.push(k);return r}`
 
-ajaxPost = (path, data, callback) ->
+ajaxPost = (path, headers, data, callback) ->
   xhr = new XMLHttpRequest()
   xhr.open('POST', path, true)
   xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded')
+  xhr.setRequestHeader(key, if typeof value is "function" then value() else value) for own key, value of headers
   xhr.onreadystatechange = callback
   xhr.send(data)
 
@@ -52,7 +53,7 @@ class Channel
     channel = this
     data = "channel=" + @es.channel
     data += "&presence_id=" + @es.options.presence_id if @es.options.presence_id
-    ajaxPost @es.options.auth_url || "/eshq/socket", data, ->
+    ajaxPost @es.options.auth_url || "/eshq/socket", @es.options.ajax_headers || {}, data, ->
       channel.open(JSON.parse(this.responseText)) if @readyState == 4 && @status == 200
 
   open: (data) ->
