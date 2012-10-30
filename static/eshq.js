@@ -4,11 +4,14 @@
 
   scripts = document.getElementsByTagName('script');
 
-  eshqScript = scripts[scripts.length - 1];
-
-  origin = eshqScript.src.replace(/\/es.js/, '');
-
   channels = {};
+
+  if (window.ESHQ_ORIGIN != null) {
+    origin = window.ESHQ_ORIGIN;
+  } else {
+    eshqScript = scripts[scripts.length - 1];
+    origin = eshqScript.src.replace(/\/es.js/, '');
+  }
 
   if (window.addEventListener == null) {
     window.addEventListener = function(name, fn) {

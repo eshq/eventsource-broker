@@ -1,7 +1,11 @@
 scripts    = document.getElementsByTagName('script')
-eshqScript = scripts[scripts.length - 1]
-origin     = eshqScript.src.replace(/\/es.js/, '')
 channels   = {}
+
+if window.ESHQ_ORIGIN?
+  origin = window.ESHQ_ORIGIN
+else
+  eshqScript = scripts[scripts.length - 1]
+  origin     = eshqScript.src.replace(/\/es.js/, '')
 
 unless window.addEventListener?
   window.addEventListener = (name, fn) -> window.attachEvent("on" + name, fn)
