@@ -57,7 +57,7 @@ class Channel
     data = "channel=" + @es.channel
     data += "&presence_id=" + @es.options.presence_id if @es.options.presence_id
     ajaxPost @es.options.auth_url || "/eshq/socket", data, ->
-      channel.open(JSON.parse(this.responseText)) if @readyState == 4 && @status == 200
+      channel.open(JSON.parse(this.responseText)) if @readyState == 4 && /^20\d$/.test(@status)
 
   open: (data) ->
     @es.socket_id = data.socket

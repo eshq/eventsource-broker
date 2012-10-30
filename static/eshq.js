@@ -109,7 +109,7 @@
         data += "&presence_id=" + this.es.options.presence_id;
       }
       return ajaxPost(this.es.options.auth_url || "/eshq/socket", data, function() {
-        if (this.readyState === 4 && this.status === 200) {
+        if (this.readyState === 4 && /^20\d$/.test(this.status)) {
           return channel.open(JSON.parse(this.responseText));
         }
       });
