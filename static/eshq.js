@@ -22,13 +22,18 @@
   Object.keys=Object.keys||function(o,k,r){r=[];for(k in o)r.hasOwnProperty.call(o,k)&&r.push(k);return r};
 
 
-  ajaxPost = function(path, data, callback) {
-    var xhr;
+  ajaxPost = function(options) {
+    var header, value, xhr, _ref;
     xhr = new XMLHttpRequest();
-    xhr.open('POST', path, true);
+    xhr.open('POST', options.url, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onreadystatechange = callback;
-    return xhr.send(data);
+    _ref = options.headers;
+    for (header in _ref) {
+      value = _ref[header];
+      xhr.setRequestHeader(header, value);
+    }
+    xhr.onreadystatechange = options.callback;
+    return xhr.send(options.data);
   };
 
   Channel = (function() {
@@ -108,9 +113,14 @@
       if (this.es.options.presence_id) {
         data += "&presence_id=" + this.es.options.presence_id;
       }
-      return ajaxPost(this.es.options.auth_url || "/eshq/socket", data, function() {
-        if (this.readyState === 4 && /^20\d$/.test(this.status)) {
-          return channel.open(JSON.parse(this.responseText));
+      return ajaxPost({
+        url: this.es.options.auth_url || "/eshq/socket",
+        data: data,
+        headers: this.es.options.auth_headers || {},
+        callback: function() {
+          if (this.readyState === 4 && /^20\d$/.test(this.status)) {
+            return channel.open(JSON.parse(this.responseText));
+          }
         }
       });
     };

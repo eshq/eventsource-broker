@@ -13,12 +13,14 @@ unless window.addEventListener?
 # Object.keys polyfill - https://gist.github.com/1034464
 `Object.keys=Object.keys||function(o,k,r){r=[];for(k in o)r.hasOwnProperty.call(o,k)&&r.push(k);return r}`
 
-ajaxPost = (path, data, callback) ->
+ajaxPost = (options) ->
   xhr = new XMLHttpRequest()
-  xhr.open('POST', path, true)
+  xhr.open('POST', options.url, true)
   xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded')
-  xhr.onreadystatechange = callback
-  xhr.send(data)
+  for header, value of options.headers
+    xhr.setRequestHeader(header, value)
+  xhr.onreadystatechange = options.callback
+  xhr.send(options.data)
 
 
 class Channel
@@ -56,8 +58,12 @@ class Channel
     channel = this
     data = "channel=" + @es.channel
     data += "&presence_id=" + @es.options.presence_id if @es.options.presence_id
-    ajaxPost @es.options.auth_url || "/eshq/socket", data, ->
-      channel.open(JSON.parse(this.responseText)) if @readyState == 4 && /^20\d$/.test(@status)
+    ajaxPost
+      url: @es.options.auth_url || "/eshq/socket"
+      data: data
+      headers: @es.options.auth_headers || {}
+      callback: ->
+        channel.open(JSON.parse(this.responseText)) if @readyState == 4 && /^20\d$/.test(@status)
 
   open: (data) ->
     @es.socket_id = data.socket
@@ -111,7 +117,7 @@ class Channel
     o    = iframe.getElementsByTagName("script")[0]
     o.parentNode.removeChild(o) if o
 
-    script = iframe.createElement("script")        
+    script = iframe.createElement("script")
     src  = "#{origin}/eventsource/script.js?socket=#{socket}&t=#{new Date().getTime()}"
     scr += "&last-event-id=#{@lastId}" if @lastId
     script.setAttribute("src", src)
