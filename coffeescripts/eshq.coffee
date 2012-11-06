@@ -18,6 +18,7 @@ ajaxPost = (options) ->
   xhr.open('POST', options.url, true)
   xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded')
   for header, value of options.headers
+    value = value() if value && value.call
     xhr.setRequestHeader(header, value)
   xhr.onreadystatechange = options.callback
   xhr.send(options.data)

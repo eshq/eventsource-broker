@@ -30,6 +30,9 @@
     _ref = options.headers;
     for (header in _ref) {
       value = _ref[header];
+      if (value && value.call) {
+        value = value();
+      }
       xhr.setRequestHeader(header, value);
     }
     xhr.onreadystatechange = options.callback;
