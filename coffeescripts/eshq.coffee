@@ -70,6 +70,9 @@ class Channel
     @es.socket_id = data.socket
     if window.postMessage then @openIframe(data) else @openHtmlFile(data)
 
+  close: ->
+    if window.postMessage then @closeIframe() else @closeHtmlFile()
+
   openIframe: (data) ->
     @frame.parentNode.removeChild(@frame) if @frame && @frame.parentNode
 
@@ -83,6 +86,9 @@ class Channel
 
     @frame        = iframe
     @frameWindow  = iframe.contentWindow
+
+  closeIframe: ->
+    document.body.removeChild(@frame)
 
   openHtmlFile: (data) ->
     iframe = new ActiveXObject("htmlfile")
@@ -103,6 +109,11 @@ class Channel
     @openScriptTransport(iframe, data.socket);
     @receive({eshqEvent: "open", originalEvent: {}})
     @iframe = iframe
+
+  closeHtmlFile: ->
+    @iframe.parentWindow.ESHQ = null
+    @iframe = null;
+    CollectGarbage();
 
   checkConnection: ->
     @connect() if new Date().getTime() - @lastEvent > 30000
@@ -160,6 +171,9 @@ class ESHQ
       form.appendChild(input)
       document.body.appendChild(form)
       form.submit()
+  close: ->
+    channels[@channel].close()
+
 
 
 onMessage = (event) ->

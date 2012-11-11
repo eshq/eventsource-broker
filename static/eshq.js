@@ -137,6 +137,14 @@
       }
     };
 
+    Channel.prototype.close = function() {
+      if (window.postMessage) {
+        return this.closeIframe();
+      } else {
+        return this.closeHtmlFile();
+      }
+    };
+
     Channel.prototype.openIframe = function(data) {
       var iframe, src;
       if (this.frame && this.frame.parentNode) {
@@ -152,6 +160,10 @@
       document.body.appendChild(iframe);
       this.frame = iframe;
       return this.frameWindow = iframe.contentWindow;
+    };
+
+    Channel.prototype.closeIframe = function() {
+      return document.body.removeChild(this.frame);
     };
 
     Channel.prototype.openHtmlFile = function(data) {
@@ -190,6 +202,12 @@
         originalEvent: {}
       });
       return this.iframe = iframe;
+    };
+
+    Channel.prototype.closeHtmlFile = function() {
+      this.iframe.parentWindow.ESHQ = null;
+      this.iframe = null;
+      return CollectGarbage();
     };
 
     Channel.prototype.checkConnection = function() {
@@ -266,6 +284,10 @@
         document.body.appendChild(form);
         return form.submit();
       }
+    };
+
+    ESHQ.prototype.close = function() {
+      return channels[this.channel].close();
     };
 
     return ESHQ;
