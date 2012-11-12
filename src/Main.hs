@@ -27,6 +27,8 @@ import qualified Data.Configurator as Conf
 
 import qualified System.UUID.V4 as UUID
 
+import           Safe (readMay)
+
 import           AMQPEvents(AMQPEvent(..), ConnectionStatus(..), Channel, openEventChannel, publishEvent)
 import           EventStream(ServerEvent(..), eventSourceStream, eventSourceResponse, eventSourceIframe, eventSourceScript)
 
@@ -274,9 +276,9 @@ withDBResult f notFound found= do
 
 validTime :: ByteString -> POSIXTime -> Bool
 validTime timestamp currentTime =
-    let t1 = read $ BS.unpack timestamp
+    let t1 = readMay $ BS.unpack timestamp
         t2 = floor currentTime :: Integer in
-        abs (t1 - t2) < 5 * 60
+        maybe False (\t -> abs (t - t2) < 5 * 60) t1
 
 
 showError :: Int -> ByteString -> Snap ()
