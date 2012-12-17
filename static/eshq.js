@@ -44,6 +44,9 @@
     function Channel(es) {
       var _this = this;
       this.es = es;
+      if (channels[this.es.channel]) {
+        channels[this.es.channel].close();
+      }
       channels[this.es.channel] = this;
       this.listeners = {};
       this.boundListeners = {};
@@ -121,6 +124,9 @@
         data: data,
         headers: this.es.options.auth_headers || {},
         callback: function() {
+          if (channel.closed) {
+            return;
+          }
           if (this.readyState === 4 && /^20\d$/.test(this.status)) {
             return channel.open(JSON.parse(this.responseText));
           }
@@ -138,11 +144,13 @@
     };
 
     Channel.prototype.close = function() {
+      this.closed = true;
       if (window.postMessage) {
-        return this.closeIframe();
+        this.closeIframe();
       } else {
-        return this.closeHtmlFile();
+        this.closeHtmlFile();
       }
+      return delete channels[this.es.channel];
     };
 
     Channel.prototype.openIframe = function(data) {
@@ -163,7 +171,11 @@
     };
 
     Channel.prototype.closeIframe = function() {
-      return document.body.removeChild(this.frame);
+      if (!this.frame) {
+        return;
+      }
+      document.body.removeChild(this.frame);
+      return this.frame = null;
     };
 
     Channel.prototype.openHtmlFile = function(data) {

@@ -26,6 +26,7 @@ ajaxPost = (options) ->
 
 class Channel
   constructor: (@es) ->
+    channels[@es.channel].close() if channels[@es.channel]
     channels[@es.channel] = this
     @listeners = {}
     @boundListeners = {}
@@ -64,6 +65,7 @@ class Channel
       data: data
       headers: @es.options.auth_headers || {}
       callback: ->
+        return if channel.closed
         channel.open(JSON.parse(this.responseText)) if @readyState == 4 && /^20\d$/.test(@status)
 
   open: (data) ->
@@ -71,7 +73,9 @@ class Channel
     if window.postMessage then @openIframe(data) else @openHtmlFile(data)
 
   close: ->
+    @closed = true
     if window.postMessage then @closeIframe() else @closeHtmlFile()
+    delete channels[@es.channel]
 
   openIframe: (data) ->
     @frame.parentNode.removeChild(@frame) if @frame && @frame.parentNode
@@ -88,7 +92,9 @@ class Channel
     @frameWindow  = iframe.contentWindow
 
   closeIframe: ->
+    return unless @frame
     document.body.removeChild(@frame)
+    @frame = null
 
   openHtmlFile: (data) ->
     iframe = new ActiveXObject("htmlfile")
