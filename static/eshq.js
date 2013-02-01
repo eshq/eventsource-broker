@@ -51,7 +51,7 @@
       this.listeners = {};
       this.boundListeners = {};
       this.connect();
-      setInterval((function() {
+      setTimeout((function() {
         return _this.checkConnection();
       }), 10000);
     }
@@ -223,9 +223,16 @@
     };
 
     Channel.prototype.checkConnection = function() {
-      if (new Date().getTime() - this.lastEvent > 30000) {
-        return this.connect();
+      var _this = this;
+      if (this.closed) {
+        return;
       }
+      if (new Date().getTime() - this.lastEvent > 30000) {
+        this.connect();
+      }
+      return setTimeout((function() {
+        return _this.checkConnection();
+      }), 10000);
     };
 
     Channel.prototype.sendToFrame = function(action, data) {

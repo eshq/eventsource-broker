@@ -31,7 +31,7 @@ class Channel
     @listeners = {}
     @boundListeners = {}
     @connect()
-    setInterval (=> @checkConnection()), 10000
+    setTimeout (=> @checkConnection()), 10000
 
   receive: (data) ->
     @lastEvent = new Date().getTime() unless data.originalEvent.type == "error"
@@ -122,7 +122,9 @@ class Channel
     CollectGarbage();
 
   checkConnection: ->
+    return if @closed
     @connect() if new Date().getTime() - @lastEvent > 30000
+    setTimeout (=> @checkConnection()), 10000
 
   sendToFrame: (action, data) ->
     @frameWindow.postMessage(JSON.stringify(
