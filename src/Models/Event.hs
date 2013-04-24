@@ -36,7 +36,7 @@ store db event = case eventId event of
 
 since :: DB -> Text -> Text -> Text -> IO (Either Failure [Event])
 since db user channel eid = do
-    result <- run db $ rest =<< find ((select ["u" =: user, "c" =: channel, "_id" =: ["$gt" =: oid]] "events") {limit = 50, sort = ["$natural" := Float 1]})
+    result <- run db $ rest =<< find ((select ["u" =: user, "c" =: channel, "_id" =: ["$gt" =: oid]] "events") {limit = 50, sort = ["_id" := Float 1]})
     return $ fmap (map  constructor) result
   where
     oid :: ObjectId
